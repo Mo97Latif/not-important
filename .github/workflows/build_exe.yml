@@ -24,9 +24,7 @@ jobs:
 
     - name: Build EXE with PyInstaller
       run: |
-        # أضفنا --collect-all customtkinter لضمان عمل الواجهة بشكل صحيح
-        pyinstaller --noconsole --onefile --collect-all customtkinter wind_app.py
-
+        pyinstaller --noconsole --onefile --collect-all customtkinter --hidden-import selenium --hidden-import selenium.webdriver.chrome.webdriver wind_app.py
     - name: Upload EXE artifact
       uses: actions/upload-artifact@v4  # هذا هو السطر الذي تسبب في الخطأ (تم تحديثه لـ v4)
       with:
