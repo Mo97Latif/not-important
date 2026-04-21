@@ -73,10 +73,10 @@ class WindScraperApp(ctk.CTk):
         city_code = city_codes[city]
 
         options = Options()
-        # --- التعديل الثاني: تعطيل Headless مؤقتاً للتصحيح ---
-        # إذا كنت تريد أن يعمل المتصفح في الخلفية تماماً، قم بإلغاء التعليق عن السطر التالي:
-        # options.add_argument("--headless") 
-        
+        # --- إعادة تفعيل وضع المتصفح الخفي ---
+        options.add_argument("--headless") 
+        options.add_argument("--disable-gpu")
+        options.add_argument("--window-size=1920,1080")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
@@ -84,43 +84,44 @@ class WindScraperApp(ctk.CTk):
         try:
             service = Service(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=options)
-            
-            # --- التعديل الثاني: الانتظار الذكي ---
-            driver.implicitly_wait(15) 
+            driver.implicitly_wait(20) 
             
             url = f"https://www.accuweather.com/en/eg/{city}/{city_code}/hourly-weather-forecast/{city_code}?day=2"
             driver.get(url)
             
-            # وقت انتظار إضافي لتحميل العناصر الديناميكية
-            time.sleep(10)
+            # محاولة إغلاق رسالة الكوكيز في الخلفية
+            try:
+                cookie_btn = driver.find_element(By.CSS_SELECTOR, ".policy-accept")
+                cookie_btn.click()
+                time.sleep(1)
+            except:
+                pass
 
-            # البحث عن البطاقات
-            cards = driver.find_elements(By.CSS_SELECTOR, ".hourly-card-n, .accordion-item")
+            # التمرير لضمان تحميل البيانات
+            driver.execute_script("window.scrollTo(0, 1000);")
+            time.sleep(8)
+
+            # استخراج البطاقات باستخدام XPATH مرن
+            cards = driver.find_elements(By.XPATH, "//div[contains(@class, 'hourly-card-n') or contains(@class, 'accordion-item')]")
             weather_data = []
             tomorrow_str = (datetime.now() + timedelta(days=1)).strftime('%d/%m/%Y')
 
             for card in cards:
                 try:
                     full_text = card.text.replace('\n', ' ')
-                    
-                    # --- التعديل الثالث: استخراج مرن للوقت والرياح ---
-                    time_match = re.search(r'(\d+)\s*(AM|PM|ص|م)', full_text, re.IGNORECASE)
-                    if not time_match: continue
-                    
-                    hour = time_match.group(1)
-                    period_raw = time_match.group(2).upper()
-                    period_en = "AM" if period_raw in ["AM", "ص"] else "PM"
-                    
-                    # البحث عن السرعة (رقم يليه كم/س أو km/h)
-                    speed_match = re.search(r'(\d+)\s*(km/h|كم/س)', full_text)
-                    
-                    # البحث عن الاتجاه (اختصار حروف كبيرة يليه مسافة ورقم السرعة)
-                    # هذا النمط يمسك "NW 15" أو "شمالية غربية 15"
-                    dir_match = re.search(r'([A-Z]{1,3}|[ا-ي\s]+)\s+\d+\s*(km/h|كم/س)', full_text)
+                    if not full_text.strip(): continue
 
-                    if speed_match and dir_match:
-                        wind_speed = speed_match.group(1).strip()
-                        wind_dir_raw = dir_match.group(1).strip()
+                    # البحث عن الوقت والرياح بنمط شامل
+                    time_match = re.search(r'(\d+)\s*(AM|PM|ص|م)', full_text, re.IGNORECASE)
+                    wind_match = re.search(r'([A-Z]{1,3}|North|South|East|West|شمال|جنوب|شرق|غرب)\s+(\d+)\s*(km/h|كم/س)', full_text, re.IGNORECASE)
+
+                    if time_match and wind_match:
+                        hour = time_match.group(1)
+                        period_raw = time_match.group(2).upper()
+                        period_en = "AM" if period_raw in ["AM", "ص"] else "PM"
+                        
+                        wind_dir_raw = wind_match.group(1)
+                        wind_speed = wind_match.group(2)
                         wind_direction = self.translate_direction(wind_dir_raw)
                         
                         formatted_time_12 = f"{hour.zfill(2)}:00:00 {period_en}"
@@ -148,8 +149,8 @@ class WindScraperApp(ctk.CTk):
                     cmd = 'open' if os.uname().sysname == 'Darwin' else 'xdg-open'
                     subprocess.call([cmd, filename])
             else:
-                self.status_label.configure(text="Status: Failed to extract data", text_color="red")
-                messagebox.showwarning("Warning", "The browser opened but no wind data was found. Please check if the site blocked the request.")
+                self.status_label.configure(text="Status: Failed to find data", text_color="red")
+                messagebox.showwarning("No Data", "Could not find wind data. The site might be blocking headless requests.")
 
         except Exception as e:
             self.status_label.configure(text="Status: Error occurred", text_color="red")
