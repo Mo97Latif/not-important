@@ -1,0 +1,29 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [ "main" ] # Runs every time you save changes
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install PyInstaller
+# Replace 'your_script_name.py' with your actual filename below!
+      run: |
+        pip install pyinstaller
+        pyinstaller --onefile weather_forecast.py 
+
+    - name: Upload EXE
+      uses: actions/upload-artifact@v4
+      with:
+        name: Windows-Executable
+        path: dist/*.exe
