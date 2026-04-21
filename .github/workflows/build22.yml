@@ -22,14 +22,7 @@ jobs:
         pip install --force-reinstall selenium webdriver-manager pyinstaller
 
     - name: Build with PyInstaller
-      run: |
-        pyinstaller --onefile --noconfirm --clean \
-        --collect-all selenium \
-        --collect-all webdriver_manager \
-        --hidden-import "selenium.webdriver.chrome.webdriver" \
-        --hidden-import "selenium.webdriver.chrome.service" \
-        --hidden-import "webdriver_manager.chrome" \
-        weather_forecast_2.py
+      run: pyinstaller --onefile --noconfirm --clean --collect-all selenium --collect-all webdriver_manager --hidden-import "selenium.webdriver.chrome.webdriver" --hidden-import "selenium.webdriver.chrome.service" --hidden-import "webdriver_manager.chrome" weather_forecast_2.py
 
     - name: Upload EXE
       uses: actions/upload-artifact@v4
