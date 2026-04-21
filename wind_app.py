@@ -10,9 +10,10 @@ import re
 import random
 import pandas as pd
 from datetime import datetime, timedelta
-import os # مكتبة للتعامل مع ملفات النظام
+import os
+import subprocess
 
-# --- إعدادات الترجمة والزوايا ---
+# --- قواميس الترجمة والزوايا ---
 translations = {
     'شمالية شرقية': 'North East', 'شمالية غربية': 'North West',
     'جنوبية شرقية': 'South East', 'جنوبية غربية': 'South West',
@@ -36,13 +37,11 @@ direction_angles = {
 class WindScraperApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-
-        self.title("🌬️ Wind Forecast Scraper (Excel Auto-Open)")
+        self.title("Wind Forecast Scraper Pro")
         self.geometry("500x450")
         ctk.set_appearance_mode("dark")
         
-        # واجهة المستخدم
-        self.label = ctk.CTkLabel(self, text="Wind Forecast download", font=("Roboto", 24, "bold"))
+        self.label = ctk.CTkLabel(self, text="Wind Forecast Scraper", font=("Roboto", 24, "bold"))
         self.label.pack(pady=20)
 
         self.city_option = ctk.CTkOptionMenu(self, values=["ras-el-kanayis", "marsa-matruh"])
@@ -51,7 +50,7 @@ class WindScraperApp(ctk.CTk):
         self.status_label = ctk.CTkLabel(self, text="Status: Ready", text_color="gray")
         self.status_label.pack(pady=10)
 
-        self.scrape_button = ctk.CTkButton(self, text="Download & Open Excel", command=self.start_scraping)
+        self.scrape_button = ctk.CTkButton(self, text="Scrape & Open Excel", command=self.start_scraping)
         self.scrape_button.pack(pady=20)
 
     def translate_direction(self, text):
@@ -66,7 +65,7 @@ class WindScraperApp(ctk.CTk):
 
     def start_scraping(self):
         self.scrape_button.configure(state="disabled")
-        self.status_label.configure(text="Status: extracting... Please wait", text_color="yellow")
+        self.status_label.configure(text="Status: Scraping... Please wait", text_color="yellow")
         self.update()
 
         city = self.city_option.get()
@@ -74,70 +73,90 @@ class WindScraperApp(ctk.CTk):
         city_code = city_codes[city]
 
         options = Options()
-        options.add_argument("--headless")
+        # --- التعديل الثاني: تعطيل Headless مؤقتاً للتصحيح ---
+        # إذا كنت تريد أن يعمل المتصفح في الخلفية تماماً، قم بإلغاء التعليق عن السطر التالي:
+        # options.add_argument("--headless") 
+        
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
         options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 
         try:
-            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-            url = f"https://www.accuweather.com/en/eg/{city}/{city_code}/hourly-weather-forecast/{city_code}?day=2"
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=options)
             
+            # --- التعديل الثاني: الانتظار الذكي ---
+            driver.implicitly_wait(15) 
+            
+            url = f"https://www.accuweather.com/en/eg/{city}/{city_code}/hourly-weather-forecast/{city_code}?day=2"
             driver.get(url)
+            
+            # وقت انتظار إضافي لتحميل العناصر الديناميكية
             time.sleep(10)
 
+            # البحث عن البطاقات
             cards = driver.find_elements(By.CSS_SELECTOR, ".hourly-card-n, .accordion-item")
             weather_data = []
             tomorrow_str = (datetime.now() + timedelta(days=1)).strftime('%d/%m/%Y')
 
             for card in cards:
-                full_text = card.text.replace('\n', ' ')
-                time_match = re.search(r'(\d+)\s*(AM|PM)', full_text, re.IGNORECASE)
-                if not time_match: continue
-                
-                hour = time_match.group(1)
-                period = time_match.group(2).upper()
-                
-                wind_match = re.search(r'([A-Z]{1,3})\s+(\d+)\s*km/h', full_text)
-                if not wind_match:
-                    wind_match = re.search(r'Wind\s+([A-Z\s]+)\s+(\d+)\s*km/h', full_text, re.IGNORECASE)
+                try:
+                    full_text = card.text.replace('\n', ' ')
+                    
+                    # --- التعديل الثالث: استخراج مرن للوقت والرياح ---
+                    time_match = re.search(r'(\d+)\s*(AM|PM|ص|م)', full_text, re.IGNORECASE)
+                    if not time_match: continue
+                    
+                    hour = time_match.group(1)
+                    period_raw = time_match.group(2).upper()
+                    period_en = "AM" if period_raw in ["AM", "ص"] else "PM"
+                    
+                    # البحث عن السرعة (رقم يليه كم/س أو km/h)
+                    speed_match = re.search(r'(\d+)\s*(km/h|كم/س)', full_text)
+                    
+                    # البحث عن الاتجاه (اختصار حروف كبيرة يليه مسافة ورقم السرعة)
+                    # هذا النمط يمسك "NW 15" أو "شمالية غربية 15"
+                    dir_match = re.search(r'([A-Z]{1,3}|[ا-ي\s]+)\s+\d+\s*(km/h|كم/س)', full_text)
 
-                if wind_match:
-                    wind_dir_raw = wind_match.group(1).strip()
-                    wind_speed = wind_match.group(2).strip()
-                    wind_direction = self.translate_direction(wind_dir_raw)
-                    
-                    # تنسيق الوقت
-                    formatted_time_12 = f"{hour.zfill(2)}:00:00 {period}"
-                    h24 = int(hour)
-                    if period == "PM" and h24 != 12: h24 += 12
-                    elif period == "AM" and h24 == 12: h24 = 0
-                    date_time_24 = f"{tomorrow_str} {str(h24).zfill(2)}:00"
-                    
-                    angle = self.get_random_angle(wind_direction)
-                    weather_data.append([tomorrow_str, formatted_time_12, date_time_24, wind_speed, wind_direction, angle])
+                    if speed_match and dir_match:
+                        wind_speed = speed_match.group(1).strip()
+                        wind_dir_raw = dir_match.group(1).strip()
+                        wind_direction = self.translate_direction(wind_dir_raw)
+                        
+                        formatted_time_12 = f"{hour.zfill(2)}:00:00 {period_en}"
+                        h24 = int(hour)
+                        if period_en == "PM" and h24 != 12: h24 += 12
+                        elif period_en == "AM" and h24 == 12: h24 = 0
+                        date_time_24 = f"{tomorrow_str} {str(h24).zfill(2)}:00"
+                        
+                        angle = self.get_random_angle(wind_direction)
+                        weather_data.append([tomorrow_str, formatted_time_12, date_time_24, wind_speed, wind_direction, angle])
+                except:
+                    continue
 
             if weather_data:
                 df = pd.DataFrame(weather_data, columns=['Date', 'Time', 'Date and time', 'wind speed km/hr', 'wind direction', 'Wind Direction Angle'])
-                # تسمية الملف بتاريخ اليوم والوقت لمنع التداخل
                 filename = f"wind_forecast_{city}_{datetime.now().strftime('%H%M%S')}.csv"
                 df.to_csv(filename, index=False, encoding='utf-8-sig')
                 
                 self.status_label.configure(text=f"Success! File: {filename}", text_color="green")
                 
-                # --- هذا السطر هو الذي سيفتح الملف تلقائياً ---
-                if os.name == 'nt': # Windows
-                    os.startfile(filename)
-                else: # macOS / Linux
-                    subprocess_cmd = 'open' if os.uname().sysname == 'Darwin' else 'xdg-open'
+                # فتح الملف تلقائياً
+                if os.name == 'nt': os.startfile(filename)
+                else:
                     import subprocess
-                    subprocess.call([subprocess_cmd, filename])
+                    cmd = 'open' if os.uname().sysname == 'Darwin' else 'xdg-open'
+                    subprocess.call([cmd, filename])
             else:
-                self.status_label.configure(text="Status: Failed to find data", text_color="red")
+                self.status_label.configure(text="Status: Failed to extract data", text_color="red")
+                messagebox.showwarning("Warning", "The browser opened but no wind data was found. Please check if the site blocked the request.")
 
         except Exception as e:
             self.status_label.configure(text="Status: Error occurred", text_color="red")
-            messagebox.showerror("Error", str(e))
+            messagebox.showerror("Error", f"An error occurred: {str(e)}")
         finally:
-            driver.quit()
+            if 'driver' in locals():
+                driver.quit()
             self.scrape_button.configure(state="normal")
 
 if __name__ == "__main__":
