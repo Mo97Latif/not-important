@@ -23,8 +23,8 @@ jobs:
         pip install pyinstaller
 
     - name: Build EXE with PyInstaller
+      # سطر البناء في ملف الـ YAML
       run: |
-        # أضفنا hidden-imports لضمان حزم مكتبات السيلينيوم بالكامل داخل الـ EXE
         pyinstaller --noconsole --onefile --collect-all customtkinter --hidden-import selenium.webdriver.chrome.webdriver --hidden-import selenium.webdriver.chrome.service --hidden-import selenium.webdriver.chrome.options wind_app.py
 
     - name: Upload EXE artifact
