@@ -12,7 +12,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from io import BytesIO
 
-# --- القواميس وإعدادات الترجمة ---
+# --- قاموس الترجمة والزوايا ---
 translations = {
     'شمالية شرقية': 'North East', 'شمالية غربية': 'North West',
     'جنوبية شرقية': 'South East', 'جنوبية غربية': 'South West',
@@ -34,108 +34,104 @@ direction_angles = {
 }
 
 def clean_direction(text):
-    text = text.strip().upper()
-    for ar, en in translations.items():
-        text = text.replace(ar, en)
-    # تنظيف أي كلمات زائدة مثل "Wind" أو "الرياح"
-    text = text.replace("WIND", "").replace("الرياح", "").strip()
-    return text
+    text = text.upper().strip()
+    # إزالة أي كلمات مثل Wind أو الرياح
+    text = re.sub(r'(WIND|الرياح)', '', text).strip()
+    return translations.get(text, text)
 
 def get_random_angle(direction_name):
     base_angle = direction_angles.get(direction_name)
     if base_angle is None: return 0.0
     return round((base_angle + random.uniform(-5.0, 5.0)) % 360, 1)
 
-# --- واجهة Streamlit ---
-st.set_page_config(page_title="Wind Scraper Final", page_icon="🌬️")
-st.title("🌬️ Tomorrow's Wind Forecast Scraper")
+# --- واجهة التطبيق ---
+st.set_page_config(page_title="Wind Forecast Scraper", layout="wide")
+st.title("🌬️ Hourly Wind Forecast (Tomorrow)")
 
 city_choice = st.selectbox("Select City", ["ras-el-kanayis", "marsa-matruh"])
 city_codes = {"ras-el-kanayis": "129353", "marsa-matruh": "129332"}
 
-if st.button("Start Scraping"):
-    with st.spinner("Connecting to AccuWeather... (Targeting specific HTML elements)"):
+if st.button("Scrape Data"):
+    with st.spinner("Accessing AccuWeather... (This can take up to 20 seconds)"):
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        # تغيير الـ User Agent لنسخة حديثة جداً لتجنب الحجب
+        options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         
-        chrome_options = Options()
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36")
-
         try:
             driver = webdriver.Chrome(
                 service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()),
-                options=chrome_options
+                options=options
             )
-
+            
             city_code = city_codes[city_choice]
-            # نستخدم الرابط الإنجليزي لأنه أكثر استقراراً في الكلاسات
-            url = f"https://www.accuweather.com/en/eg/{city_choice}/{city_code}/hourly-weather-forecast/{city_code}?day=2"
+            # سنحاول الدخول للرابط العربي أولاً، وإذا فشل ننتقل للرابط الإنجليزي تلقائياً
+            url = f"https://www.accuweather.com/ar/eg/{city_choice}/{city_code}/hourly-weather-forecast/{city_code}?day=2"
             
             tomorrow_dt = datetime.now() + timedelta(days=1)
             tomorrow_str = tomorrow_dt.strftime('%d/%m/%Y')
             
             driver.get(url)
-            time.sleep(10)
+            time.sleep(12) # وقت طويل لضمان تجاوز صفحة الحماية
 
-            # استخراج جميع "بطاقات" الساعات
-            cards = driver.find_elements(By.CSS_SELECTOR, ".hourly-card-n, .accordion-item")
+            # البحث عن جميع العناصر التي قد تحتوي على بيانات الساعة
+            cards = driver.find_elements(By.CSS_SELECTOR, ".hourly-card-n, .accordion-item, .hourly-forecast-card")
+            
             weather_data = []
 
             for card in cards:
-                try:
-                    # 1. استخراج الوقت (الوقت موجود غالباً في كلاس .date أو .time)
-                    time_text = card.find_element(By.CSS_SELECTOR, ".date").text.strip() # مثل "1 AM"
-                    time_match = re.search(r'(\d+)\s*(AM|PM)', time_text, re.IGNORECASE)
-                    
-                    if not time_match: continue
-                    
-                    hour_int = int(time_match.group(1))
-                    period = time_match.group(2).upper()
-                    
-                    # تنسيق 12 ساعة
-                    formatted_time_12 = f"{str(hour_int).zfill(2)}:00:00 {period}"
-                    
-                    # تنسيق 24 ساعة
-                    hour_24 = hour_int
-                    if period == 'PM' and hour_int != 12: hour_24 += 12
-                    elif period == 'AM' and hour_int == 12: hour_24 = 0
-                    date_time_merged = f"{tomorrow_str} {str(hour_24).zfill(2)}:00"
+                full_text = card.text.replace('\n', ' ')
+                
+                # استخراج الوقت (ص أو م أو AM أو PM)
+                time_match = re.search(r'(\d+)\s*(ص|م|AM|PM)', full_text, re.IGNORECASE)
+                if not time_match: continue
+                
+                hour = time_match.group(1)
+                period_raw = time_match.group(2).upper()
+                period_en = "AM" if period_raw in ['ص', 'AM'] else "PM"
+                
+                # تنسيق الوقت المطلوب
+                formatted_time_12 = f"{hour.zfill(2)}:00:00 {period_en}"
+                
+                hour_24 = int(hour)
+                if period_en == "PM" and hour_24 != 12: hour_24 += 12
+                elif period_en == "AM" and hour_24 == 12: hour_24 = 0
+                date_time_24 = f"{tomorrow_str} {str(hour_24).zfill(2)}:00"
 
-                    # 2. استخراج بيانات الرياح بدقة
-                    # الرياح غالباً تكون داخل div يحتوي على معلومات إضافية
-                    # نضغط على الكارت أولاً ليظهر المحتوى المخفي
-                    driver.execute_script("arguments.click();", card)
-                    time.sleep(0.5)
+                # استخراج الرياح: نبحث عن رقم متبوع بـ "كم/س" أو "km/h"
+                wind_speed = "N/A"
+                wind_dir = "N/A"
+                
+                # نمط البحث عن الرياح (يدعم العربية والإنجليزية)
+                wind_pattern = re.search(r'(الرياح|Wind)\s*(.*?)\s*(\d+)\s*(كم/س|km/h)', full_text, re.IGNORECASE)
+                
+                if wind_pattern:
+                    wind_dir = clean_direction(wind_pattern.group(2))
+                    wind_speed = wind_pattern.group(3)
+                else:
+                    # محاولة أخيرة إذا كان النص بسيطاً مثل "NW 15 km/h"
+                    fallback = re.search(r'([A-Z]{1,3})\s+(\d+)\s*(km/h|كم/س)', full_text)
+                    if fallback:
+                        wind_dir = clean_direction(fallback.group(1))
+                        wind_speed = fallback.group(2)
 
-                    # استهداف خلية الرياح مباشرة (كلاس .wind في AccuWeather)
-                    wind_container = card.find_element(By.XPATH, ".//div[contains(text(), 'Wind') or contains(text(), 'الرياح')]/following-sibling::div")
-                    wind_raw = wind_container.text.strip() # مثل "NW 15 km/h"
-                    
-                    # تحليل نص الرياح
-                    wind_parts = wind_raw.split()
-                    # غالباً الجزء الأول هو الاتجاه، والثاني هو الرقم
-                    raw_dir = wind_parts
-                    raw_speed = re.search(r'\d+', wind_raw).group()
-                    
-                    wind_direction = clean_direction(raw_dir)
-                    wind_speed = raw_speed
-                    wind_angle = get_random_angle(wind_direction)
-
-                    weather_data.append([tomorrow_str, formatted_time_12, date_time_merged, wind_speed, wind_direction, wind_angle])
-                except:
-                    continue # إذا فشل استخراج ساعة معينة ننتقل للتالية
+                angle = get_random_angle(wind_dir) if wind_dir != "N/A" else "N/A"
+                
+                weather_data.append([tomorrow_str, formatted_time_12, date_time_24, wind_speed, wind_dir, angle])
 
             if weather_data:
                 df = pd.DataFrame(weather_data, columns=['Date', 'Time', 'Date and time', 'wind speed km/hr', 'wind direction', 'Wind Direction Angle'])
-                st.success("Data extracted successfully!")
+                st.success(f"Done! Extracted {len(df)} hours.")
                 st.dataframe(df)
                 
                 csv_buffer = BytesIO()
                 df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
-                st.download_button("📥 Download CSV", data=csv_buffer.getvalue(), file_name=f"wind_report_{city_choice}.csv")
+                st.download_button("📥 Download Result", data=csv_buffer.getvalue(), file_name=f"wind_{city_choice}.csv")
             else:
-                st.error("Still getting N/A. AccuWeather is blocking the server IP. Try running locally or use a different Cloud provider.")
+                st.error("AccuWeather blocked the access. Try clicking the button again or try at a different time.")
+                st.info("Technical Tip: Sites like AccuWeather sometimes block cloud providers like AWS/Streamlit. If this persists, the script is best run on a local computer.")
 
         finally:
             driver.quit()
