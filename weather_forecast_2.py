@@ -8,6 +8,9 @@ import os
 import subprocess
 import random  # مكتبة لتوليد الأرقام العشوائية
 from datetime import datetime, timedelta
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+
 
 # إعدادات المتصفح
 chrome_options = Options()
@@ -80,7 +83,8 @@ def get_random_angle(direction_name):
 tomorrow_dt = datetime.now() + timedelta(days=1)
 tomorrow_str = tomorrow_dt.strftime('%d/%m/%Y')
 
-driver = webdriver.Chrome(options=chrome_options)
+service = Service(ChromeDriverManager().install())
+driver = webdriver.Chrome(service=service, options=chrome_options)
 
 while True:
     city_index = input("Select the City (enter 1 to select Ras-El-Kanayis or  2 to select Marsa-Matruh): ").strip().lower()
