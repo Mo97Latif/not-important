@@ -1,4 +1,4 @@
-streamlit
+customtkinter
 selenium
 webdriver-manager
 pandas
