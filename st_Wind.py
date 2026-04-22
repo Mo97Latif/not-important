@@ -1,53 +1,145 @@
 import streamlit as st
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By  # هذا هو السطر الذي كان ينقصك
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 import time
+import re
+import random
+import pandas as pd
+from datetime import datetime, timedelta
+from io import BytesIO
 
-st.title("🔍 IP & Access Connectivity Test")
+# --- القواميس (تأكد من وجود الاختصارات الإنجليزية) ---
+translations = {
+    'شمالية شرقية': 'North East', 'شمالية غربية': 'North West',
+    'جنوبية شرقية': 'South East', 'جنوبية غربية': 'South West',
+    'شمالية': 'North', 'جنوبية': 'South', 'شرقية': 'East', 'غربية': 'West',
+    'N': 'North', 'S': 'South', 'E': 'East', 'W': 'West',
+    'NW': 'North West', 'NE': 'North East', 'SW': 'South West', 'SE': 'South East',
+    'م': 'PM', 'ص': 'AM'
+}
 
-if st.button("Run Connection Test"):
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+direction_angles = {
+    'North': 0.0, 'North North East': 22.5, 'North East': 45.0,
+    'East North East': 67.5, 'East': 90.0, 'East South East': 112.5,
+    'South East': 135.0, 'South South East': 157.5, 'South': 180.0,
+    'South South West': 202.5, 'South West': 225.0, 'West South West': 247.5,
+    'West': 270.0, 'West North West': 292.5, 'North West': 315.0, 'North North West': 337.5
+}
 
-    try:
-        with st.spinner("Starting Chrome and testing connection..."):
+def clean_direction(text):
+    text = text.upper().strip()
+    for ar, en in translations.items():
+        text = text.replace(ar, en)
+    return text
+
+def get_random_angle(direction_name):
+    base_angle = direction_angles.get(direction_name)
+    if base_angle is None:
+        for key in direction_angles:
+            if key in direction_name:
+                base_angle = direction_angles[key]
+                break
+    if base_angle is None: return 0.0
+    return round((base_angle + random.uniform(-5.0, 5.0)) % 360, 1)
+
+# --- واجهة Streamlit ---
+st.set_page_config(page_title="Wind Forecast Scraper", page_icon="🌬️")
+st.title("🌬️ Tomorrow's Hourly Wind Scraper")
+
+city_choice = st.selectbox("Select City", ["ras-el-kanayis", "marsa-matruh"])
+city_codes = {"ras-el-kanayis": "129353", "marsa-matruh": "129332"}
+
+if st.button("Start Extraction"):
+    with st.spinner("Executing Stealth Scraping..."):
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        # أهم وسيط لتجاوز كشف البوتات
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+
+        try:
             driver = webdriver.Chrome(
                 service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()),
                 options=chrome_options
             )
             
-            # --- الخطوة 1: معرفة الـ IP الخاص بالسيرفر ---
-            st.subheader("1. Server Identity Check")
-            driver.get("https://api.ipify.org")
-            # الآن سيعمل By.TAG_NAME بدون مشاكل
-            server_ip = driver.find_element(By.TAG_NAME, "body").text
-            st.write(f"🌐 Streamlit Server IP: `{server_ip}`")
+            # منع الموقع من اكتشاف السيلينيوم
+            driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-            # --- الخطوة 2: اختبار الوصول لـ AccuWeather ---
-            st.subheader("2. AccuWeather Accessibility")
-            test_url = "https://www.accuweather.com/"
-            driver.get(test_url)
-            time.sleep(5)
+            city_code = city_codes[city_choice]
+            # نستخدم الرابط الإنجليزي لأنه أسرع في التحميل على السيرفرات
+            url = f"https://www.accuweather.com/en/eg/{city_choice}/{city_code}/hourly-weather-forecast/{city_code}?day=2"
             
-            page_title = driver.title
-            st.write(f"📄 Page Title: **{page_title}**")
+            driver.get(url)
+            
+            # انتظار ذكي لظهور بطاقات الساعات
+            wait = WebDriverWait(driver, 20)
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".hourly-card-n, .accordion-item")))
 
-            if "Access Denied" in page_title or "403" in page_title:
-                st.error("🚫 Result: IP is BLOCKED by AccuWeather (Access Denied).")
-            elif "AccuWeather" in page_title:
-                st.success("✅ Result: Connection Successful! AccuWeather is reachable.")
+            # خطوة حاسمة: التمرير لأسفل ببطء لتحفيز تحميل البيانات المخفية
+            for _ in range(3):
+                driver.execute_script("window.scrollBy(0, 800);")
+                time.sleep(1)
+
+            cards = driver.find_elements(By.CSS_SELECTOR, ".hourly-card-n, .accordion-item")
+            weather_data = []
+            tomorrow_str = (datetime.now() + timedelta(days=1)).strftime('%d/%m/%Y')
+
+            for card in cards:
+                try:
+                    # نضغط على الكارت برمجياً لضمان ظهور تفاصيل الرياح
+                    driver.execute_script("arguments.click();", card)
+                    
+                    full_text = card.text.replace('\n', ' ')
+                    
+                    # استخراج الوقت
+                    time_match = re.search(r'(\d+)\s*(AM|PM)', full_text, re.IGNORECASE)
+                    if not time_match: continue
+                    
+                    hour = time_match.group(1)
+                    period = time_match.group(2).upper()
+
+                    # استخراج الرياح (نبحث عن رقم يليه km/h)
+                    # هذا النمط يمسك "NW 15 km/h" أو "Wind NW 15 km/h"
+                    wind_match = re.search(r'(?:Wind\s+)?([A-Z]{1,3})\s+(\d+)\s*km/h', full_text, re.IGNORECASE)
+
+                    if wind_match:
+                        wind_dir_raw = wind_match.group(1)
+                        wind_speed = wind_match.group(2)
+                        wind_direction = clean_direction(wind_dir_raw)
+                        
+                        formatted_time_12 = f"{hour.zfill(2)}:00:00 {period}"
+                        h24 = int(hour)
+                        if period == "PM" and h24 != 12: h24 += 12
+                        elif period == "AM" and h24 == 12: h24 = 0
+                        date_time_24 = f"{tomorrow_str} {str(h24).zfill(2)}:00"
+                        
+                        angle = get_random_angle(wind_direction)
+                        weather_data.append([tomorrow_str, formatted_time_12, date_time_24, wind_speed, wind_direction, angle])
+                except:
+                    continue
+
+            if weather_data:
+                df = pd.DataFrame(weather_data, columns=['Date', 'Time', 'Date and time', 'wind speed km/hr', 'wind direction', 'Wind Direction Angle'])
+                st.success(f"Successfully extracted {len(df)} hours!")
+                st.dataframe(df)
+                
+                csv_buffer = BytesIO()
+                df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
+                st.download_button("📥 Download Results", data=csv_buffer.getvalue(), file_name=f"wind_{city_choice}.csv")
             else:
-                st.warning(f"⚠️ Result: Unexpected response. Title: {page_title}")
+                st.error("Connection successful, but wind data was hidden. Try running the EXE version locally for better results.")
 
-    except Exception as e:
-        st.error(f"❌ Test Failed: {e}")
-    finally:
-        if 'driver' in locals():
-            driver.quit()
+        except Exception as e:
+            st.error(f"Error during extraction: {e}")
+        finally:
+            if 'driver' in locals():
+                driver.quit()
