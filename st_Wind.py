@@ -45,12 +45,12 @@ def get_random_angle(direction_name):
 
 # --- واجهة Streamlit ---
 st.set_page_config(page_title="Wind Scraper Pro", page_icon="🌬️")
-st.title("🌬️ Wind Forecast Extractor")
+st.title("🌬️ Wind Forecast Extractor 🌬️")
 
 city_choice = st.selectbox("Select City", ["ras-el-kanayis", "marsa-matruh"])
 city_codes = {"ras-el-kanayis": "129353", "marsa-matruh": "129332"}
 
-if st.button("🚀 Run Scraper"):
+if st.button("🚀 Extract data"):
     with st.spinner("Processing settings and extracting data..."):
         chrome_options = Options()
         chrome_options.add_argument("--headless=new")
