@@ -3,7 +3,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
@@ -18,6 +18,8 @@ from io import BytesIO
 translations = {
     'N': 'North', 'S': 'South', 'E': 'East', 'W': 'West',
     'NE': 'North East', 'NW': 'North West', 'SE': 'South East', 'SW': 'South West',
+    'ENE': 'East North East', 'ESE': 'East South East', 'WNW': 'West North West', 'WSW': 'West South West',
+    'NNE': 'North North East', 'NNW': 'North North West', 'SSE': 'South South East', 'SSW': 'South South West',
     'م': 'PM', 'ص': 'AM'
 }
 
@@ -43,14 +45,15 @@ def get_random_angle(direction_name):
     return round((base_angle + random.uniform(-5.0, 5.0)) % 360, 1) if base_angle is not None else 0.0
 
 # --- واجهة Streamlit ---
-st.set_page_config(page_title="Ultimate Wind Scraper", page_icon="🌬️")
-st.title("🌬️ Tomorrow's Wind Forecast (Metric Forced)")
+st.set_page_config(page_title="Ultimate Metric Scraper", page_icon="🌬️")
+st.title("🌬️ Tomorrow's Wind Forecast")
+st.info("This version uses the Settings Page to force Metric units (KM/H).")
 
 city_choice = st.selectbox("Select City", ["ras-el-kanayis", "marsa-matruh"])
 city_codes = {"ras-el-kanayis": "129353", "marsa-matruh": "129332"}
 
-if st.button("Extract Data & Capture View"):
-    with st.spinner("Navigating AccuWeather and capturing screenshot..."):
+if st.button("Start Extraction & Capture Screenshot"):
+    with st.spinner("Configuring Metric units via Settings..."):
         chrome_options = Options()
         chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
@@ -61,34 +64,38 @@ if st.button("Extract Data & Capture View"):
         try:
             driver = webdriver.Chrome(service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()), options=chrome_options)
             
-            city_code = city_codes[city_choice]
-            url = f"https://www.accuweather.com/en/eg/{city_choice}/{city_code}/hourly-weather-forecast/{city_code}?day=2"
-            driver.get(url)
+            # --- الخطوة 1: ضبط الوحدات عالمياً ---
+            driver.get("https://www.accuweather.com/en/settings")
             time.sleep(5)
-
-            # 1. إغلاق نافذة الخصوصية (Privacy Popup)
+            
+            # تجاوز نافذة الخصوصية
             try:
-                accept_btn = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Accept')]")))
+                accept_btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Accept')]")))
                 driver.execute_script("arguments.click();", accept_btn)
                 time.sleep(2)
             except: pass
 
-            # 2. محاولة تغيير الوحدات إلى Metric عبر واجهة الموقع
             try:
-                settings_button = driver.find_element(By.CSS_SELECTOR, ".header-settings-link, .settings-link")
-                driver.execute_script("arguments.click();", settings_button)
+                # اختيار Metric من القائمة المنسدلة باستخدام كلاس Select الخاص بسيلينيوم
+                unit_select = Select(WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "unit"))))
+                unit_select.select_by_value("m") # 'm' تعني Metric
                 time.sleep(2)
-                metric_option = driver.find_element(By.XPATH, "//span[contains(text(), 'Metric')] | //li[contains(text(), 'Metric')]")
-                driver.execute_script("arguments.click();", metric_option)
-                time.sleep(3)
-            except: pass
+                st.write("✔️ Units changed to Metric in settings.")
+            except Exception as e:
+                st.warning(f"Could not change settings via dropdown: {e}")
 
-            # --- التعديل المطلوب: التقاط الصورة الآن ---
-            st.subheader("📸 Screenshot Check")
+            # --- الخطوة 2: الانتقال لصفحة البيانات ---
+            city_code = city_codes[city_choice]
+            url = f"https://www.accuweather.com/en/eg/{city_choice}/{city_code}/hourly-weather-forecast/{city_code}?day=2"
+            driver.get(url)
+            time.sleep(6)
+
+            # --- الخطوة 3: التقاط الصورة للتحقق (قبل القشط) ---
+            st.subheader("📸 Server View Check")
             screenshot = driver.get_screenshot_as_png()
-            st.image(screenshot, caption="What the server sees after forcing Metric settings")
+            st.image(screenshot, caption="Snapshot from the cloud server after applying settings")
 
-            # 3. استخراج البيانات
+            # --- الخطوة 4: القشط (Scraping) ---
             driver.execute_script("window.scrollTo(0, 800);")
             time.sleep(3)
             
@@ -107,7 +114,7 @@ if st.button("Extract Data & Capture View"):
                         dir_raw, speed_raw, unit = wind_match.groups()
                         
                         speed_val = float(speed_raw)
-                        # تحويل رياضي احتياطي إذا ظل الموقع يعرض mph رغم المحاولة
+                        # تحويل رياضي احتياطي إذا ظل الموقع يعرض mph (لزيادة الأمان)
                         if unit.lower() == 'mph':
                             speed_val = round(speed_val * 1.60934, 1)
                         
@@ -125,14 +132,14 @@ if st.button("Extract Data & Capture View"):
 
             if weather_data:
                 df = pd.DataFrame(weather_data, columns=['Date', 'Time', 'Date and time', 'wind speed km/hr', 'wind direction', 'Wind Direction Angle'])
-                st.success(f"Extracted {len(df)} hours!")
+                st.success(f"Successfully extracted {len(df)} forecast hours.")
                 st.dataframe(df)
                 
                 csv_buffer = BytesIO()
                 df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
-                st.download_button("📥 Download Results", data=csv_buffer.getvalue(), file_name=f"wind_forecast_{city_choice}.csv")
+                st.download_button("📥 Download Result CSV", data=csv_buffer.getvalue(), file_name=f"wind_{city_choice}.csv")
             else:
-                st.error("No data found. Review the screenshot to check page content.")
+                st.error("No data cards found. Check the screenshot above for layout issues.")
 
         except Exception as e:
             st.error(f"Execution Error: {e}")
