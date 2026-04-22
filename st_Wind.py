@@ -13,6 +13,21 @@ import random
 import pandas as pd
 from datetime import datetime, timedelta
 from io import BytesIO
+import requests
+
+# --- وظيفة جلب بروكسيات مجانية ---
+def get_free_proxies():
+    """يجلب قائمة بروكسيات مجانية من مصدر خارجي"""
+    try:
+        # نستخدم API مجاني لجلب بروكسيات HTTP
+        url = "https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            proxies = response.text.strip().split("\r\n")
+            return [p for p in proxies if p]
+    except Exception:
+        return []
+    return []
 
 # --- القواميس وإعدادات الترجمة ---
 translations = {
@@ -33,8 +48,8 @@ direction_angles = {
 
 def translate_direction(text):
     text = text.upper().strip()
-    for arabic, english in translations.items():
-        text = text.replace(arabic, english)
+    for ar, en in translations.items():
+        text = text.replace(ar, en)
     return text
 
 def get_random_angle(direction_name):
@@ -48,28 +63,41 @@ def get_random_angle(direction_name):
     return round((base_angle + random.uniform(-5.0, 5.0)) % 360, 1)
 
 # --- واجهة Streamlit ---
-st.set_page_config(page_title="Wind Forecast Scraper", page_icon="🌬️")
+st.set_page_config(page_title="Wind Scraper Proxy Edition", page_icon="🌬️")
 st.title("🌬️ Tomorrow's Wind Forecast Scraper")
+st.write("Current Strategy: **Cloud Browser + Free Proxy Rotation**")
 
 city_choice = st.selectbox("Select City", ["ras-el-kanayis", "marsa-matruh"])
 city_codes = {"ras-el-kanayis": "129353", "marsa-matruh": "129332"}
 
-if st.button("Start Scraping"):
-    with st.spinner("Initializing Stealth Browser & Waiting for Data..."):
-        
+if st.button("Start Scraping (Using Proxy)"):
+    proxies = get_free_proxies()
+    
+    with st.spinner("Initializing Stealth Browser..."):
         chrome_options = Options()
         chrome_options.add_argument("--headless")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
-        # تنكر في هوية متصفح حقيقي لتجاوز الحماية
         chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        
+        # إضافة بروكسي عشوائي إذا نجح الجلب
+        current_proxy = None
+        if proxies:
+            current_proxy = random.choice(proxies)
+            chrome_options.add_argument(f'--proxy-server={current_proxy}')
+            st.info(f"🌐 Connected via Proxy: `{current_proxy}`")
+        else:
+            st.warning("⚠️ No free proxies found, trying direct connection...")
 
         try:
             driver = webdriver.Chrome(
                 service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()),
                 options=chrome_options
             )
+            
+            # زيادة مهلة التحميل لأن البروكسي قد يكون بطيئاً
+            driver.set_page_load_timeout(45)
             
             city_code = city_codes[city_choice]
             url = f"https://www.accuweather.com/en/eg/{city_choice}/{city_code}/hourly-weather-forecast/{city_code}?day=2"
@@ -78,29 +106,21 @@ if st.button("Start Scraping"):
             tomorrow_str = tomorrow_dt.strftime('%d/%m/%Y')
             
             driver.get(url)
+            
+            # الانتظار الذكي لظهور بيانات الرياح
+            wait = WebDriverWait(driver, 25)
+            wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Wind') or contains(text(), 'الرياح')]")))
 
-            # --- التحديث المطلوب: الانتظار حتى ظهور بيانات الرياح ---
-            try:
-                # ننتظر حتى يظهر أي عنصر يحتوي على كلمة الرياح أو Wind لمدة 20 ثانية
-                WebDriverWait(driver, 20).until(
-                    EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Wind') or contains(text(), 'الرياح')]"))
-                )
-            except:
-                st.warning("⚠️ Time out: Wind info didn't load in time. The script will try to continue anyway.")
+            # تمرير الصفحة لتفعيل المحتوى الديناميكي
+            driver.execute_script("window.scrollTo(0, 800);")
+            time.sleep(5)
 
-            # تمرير بسيط لضمان تحميل المحتوى الديناميكي
-            driver.execute_script("window.scrollTo(0, 500);")
-            time.sleep(3)
-
-            # استخراج البطاقات
             cards = driver.find_elements(By.CSS_SELECTOR, ".hourly-card-n, .accordion-item")
             weather_data = []
 
             for card in cards:
                 try:
                     full_text = card.text.replace('\n', ' ')
-                    
-                    # استخراج الوقت
                     time_match = re.search(r'(\d+)\s*(AM|PM|ص|م)', full_text, re.IGNORECASE)
                     if not time_match: continue
                     
@@ -108,8 +128,7 @@ if st.button("Start Scraping"):
                     period_raw = time_match.group(2).upper()
                     period_en = "AM" if period_raw in ["AM", "ص"] else "PM"
 
-                    # استخراج الرياح
-                    # نبحث عن نمط: اتجاه (حروف) متبوع برقم متبوع بـ km/h
+                    # البحث عن سرعة واتجاه الرياح
                     wind_match = re.search(r'([A-Z]{1,3}|North|South|East|West|شمال|جنوب|شرق|غرب)\s+(\d+)\s*(km/h|كم/س)', full_text, re.IGNORECASE)
 
                     if wind_match:
@@ -130,17 +149,18 @@ if st.button("Start Scraping"):
 
             if weather_data:
                 df = pd.DataFrame(weather_data, columns=['Date', 'Time', 'Date and time', 'wind speed km/hr', 'wind direction', 'Wind Direction Angle'])
-                st.success(f"✅ Successfully scraped {len(df)} hours!")
+                st.success(f"✅ Extracted {len(df)} hours of data!")
                 st.dataframe(df)
                 
                 csv_buffer = BytesIO()
                 df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
-                st.download_button("📥 Download Excel/CSV", data=csv_buffer.getvalue(), file_name=f"wind_{city_choice}.csv")
+                st.download_button("📥 Download Results", data=csv_buffer.getvalue(), file_name=f"wind_{city_choice}.csv")
             else:
-                st.error("❌ No wind data found. AccuWeather might be blocking the Cloud Server IP.")
+                st.error("❌ Data not found. This proxy might be blocked or the page structure changed.")
 
         except Exception as e:
-            st.error(f"Error occurred: {e}")
+            st.error(f"⚠️ Scraping failed: {e}")
+            st.info("Free proxies often fail. Try clicking the button again to rotate to a new proxy.")
         finally:
             if 'driver' in locals():
                 driver.quit()
