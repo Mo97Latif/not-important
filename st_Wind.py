@@ -51,7 +51,7 @@ st.title("🌬️ Wind Scraper (MPH to KM/H Edition)")
 city_choice = st.selectbox("Select City", ["ras-el-kanayis", "marsa-matruh"])
 city_codes = {"ras-el-kanayis": "129353", "marsa-matruh": "129332"}
 
-if st.button("Start Final Extraction"):
+if st.button("Download File"):
     with st.spinner("Processing..."):
         chrome_options = Options()
         chrome_options.add_argument("--headless=new")
