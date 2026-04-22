@@ -75,4 +75,89 @@ if st.button("Start Extraction"):
         chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 
         try:
-        
+            driver = webdriver.Chrome(
+                service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()),
+                options=chrome_options
+            )
+            
+            # إخفاء webdriver flag
+            driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+            city_code = city_codes[city_choice]
+            url = f"https://www.accuweather.com/en/eg/{city_choice}/{city_code}/hourly-weather-forecast/{city_code}?day=2"
+            driver.get(url)
+
+            # انتظار أولي
+            time.sleep(5)
+
+            # --- ميزة التصوير المباشر ---
+            if debug_mode:
+                st.subheader("📸 Server View (Live Screenshot)")
+                st.image(driver.get_screenshot_as_png(), caption="This is what the server sees right now")
+
+            # 1. محاولة إغلاق نافذة الخصوصية
+            try:
+                # نبحث عن أي زر يحتوي على كلمة Accept أو كلاس policy-accept
+                accept_btn = WebDriverWait(driver, 7).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, ".policy-accept, .btn-primary.policy-accept"))
+                )
+                driver.execute_script("arguments.click();", accept_btn)
+                st.write("✔️ Privacy Popup Clicked")
+                time.sleep(2)
+            except:
+                st.write("ℹ️ No privacy popup found or already closed.")
+
+            # 2. التمرير لأسفل لتحفيز تحميل البيانات
+            driver.execute_script("window.scrollTo(0, 800);")
+            time.sleep(3)
+
+            # 3. استخراج البيانات
+            cards = driver.find_elements(By.CSS_SELECTOR, ".hourly-card-n, .accordion-item")
+            weather_data = []
+            tomorrow_str = (datetime.now() + timedelta(days=1)).strftime('%d/%m/%Y')
+
+            for card in cards:
+                try:
+                    full_text = card.text.replace('\n', ' ')
+                    
+                    time_match = re.search(r'(\d+)\s*(AM|PM)', full_text, re.IGNORECASE)
+                    if not time_match: continue
+                    
+                    # نمط بحث مرن عن الرياح
+                    wind_match = re.search(r'(?:Wind\s+)?([A-Z]{1,3})\s+(\d+)\s*km/h', full_text, re.IGNORECASE)
+
+                    if wind_match:
+                        hour = time_match.group(1)
+                        period = time_match.group(2).upper()
+                        wind_dir_raw = wind_match.group(1)
+                        wind_speed = wind_match.group(2)
+                        
+                        wind_direction = clean_direction(wind_dir_raw)
+                        formatted_time_12 = f"{hour.zfill(2)}:00:00 {period}"
+                        
+                        h24 = int(hour)
+                        if period == "PM" and h24 != 12: h24 += 12
+                        elif period == "AM" and h24 == 12: h24 = 0
+                        date_time_24 = f"{tomorrow_str} {str(h24).zfill(2)}:00"
+                        
+                        angle = get_random_angle(wind_direction)
+                        weather_data.append([tomorrow_str, formatted_time_12, date_time_24, wind_speed, wind_direction, angle])
+                except:
+                    continue
+
+            if weather_data:
+                df = pd.DataFrame(weather_data, columns=['Date', 'Time', 'Date and time', 'wind speed km/hr', 'wind direction', 'Wind Direction Angle'])
+                st.success(f"Done! Found {len(df)} hours of data.")
+                st.dataframe(df)
+                
+                csv_buffer = BytesIO()
+                df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
+                st.download_button("📥 Download Report", data=csv_buffer.getvalue(), file_name=f"wind_{city_choice}.csv")
+            else:
+                st.error("No data extracted. Check the screenshot above to see if the page loaded correctly.")
+
+        except Exception as e:
+            st.error(f"Execution Error: {e}")
+        finally:
+            if 'driver' in locals():
+                driver.quit()
