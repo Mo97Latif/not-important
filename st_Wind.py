@@ -56,9 +56,14 @@ st.markdown("Units: **KM/H** | Format: **US Date (MM/DD/YYYY)**")
 city_choice = st.selectbox("اختار المدينة (Select City)", ["ras-el-kanayis", "marsa-matruh"])
 city_codes = {"ras-el-kanayis": "129353", "marsa-matruh": "129332"}
 
-# اختيار اليوم (التعديل الجديد)
-day_label = st.selectbox("اختار اليوم (Select Day)", ["Tomorrow (بكرة)", "Day After Tomorrow (بعد بكرة)", "Following Day (اليوم الثالث)"])
-day_map = {"Tomorrow (بكرة)": 2, "Day After Tomorrow (بعد بكرة)": 3, "Following Day (اليوم الثالث)": 4}
+# اختيار اليوم (تحديث لإضافة خيار اليوم)
+day_label = st.selectbox("اختار اليوم (Select Day)", ["Today (النهاردة)", "Tomorrow (بكرة)", "Day After Tomorrow (بعد بكرة)", "Following Day (اليوم الثالث)"])
+day_map = {
+    "Today (النهاردة)": 1,
+    "Tomorrow (بكرة)": 2, 
+    "Day After Tomorrow (بعد بكرة)": 3, 
+    "Following Day (اليوم الثالث)": 4
+}
 selected_day_num = day_map[day_label]
 
 if st.button("🚀 طلع لي الداتا"):
@@ -73,7 +78,7 @@ if st.button("🚀 طلع لي الداتا"):
         try:
             driver = webdriver.Chrome(service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()), options=chrome_options)
             
-            # 1. Force Metric Units using the Anchor Position logic
+            # 1. ضبط الوحدات (Metric)
             driver.get("https://www.accuweather.com/en/settings")
             time.sleep(7)
             try:
@@ -86,21 +91,20 @@ if st.button("🚀 طلع لي الداتا"):
             except:
                 driver.execute_script("document.cookie = 'u=1; domain=.accuweather.com; path=/';")
 
-            # 2. Navigate to Forecast (استخدام اليوم المختار في الرابط)
+            # 2. الانتقال لصفحة البيانات بناءً على اليوم المختار
             city_code = city_codes[city_choice]
             url = f"https://www.accuweather.com/en/eg/{city_choice}/{city_code}/hourly-weather-forecast/{city_code}?day={selected_day_num}"
             driver.get(url)
             time.sleep(7)
 
-            # 3. Data Extraction
+            # 3. استخراج البيانات
             driver.execute_script("window.scrollTo(0, 800);")
             time.sleep(3)
             
             cards = driver.find_elements(By.CSS_SELECTOR, ".hourly-card-n, .accordion-item")
             weather_data = []
             
-            # حساب التاريخ الأمريكي بناءً على اليوم المختار
-            # لو اخترنا بكرة (day=2) بنضيف يوم واحد، لو بعده (day=3) بنضيف يومين، وهكذا
+            # حساب التاريخ الأمريكي بناءً على اليوم المختار (day=1 يعني إضافة 0 أيام)
             target_date = datetime.now() + timedelta(days=(selected_day_num - 1))
             date_us = target_date.strftime('%m/%d/%Y')
 
