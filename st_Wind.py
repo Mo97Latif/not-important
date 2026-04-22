@@ -113,4 +113,46 @@ if st.button("Run Scraper & Capture All Steps"):
             
             cards = driver.find_elements(By.CSS_SELECTOR, ".hourly-card-n, .accordion-item")
             weather_data = []
-            tomorrow_str
+            tomorrow_str = (datetime.now() + timedelta(days=1)).strftime('%d/%m/%Y')
+
+            for card in cards:
+                try:
+                    text = card.text.replace('\n', ' ')
+                    time_match = re.search(r'(\d+)\s*(AM|PM)', text, re.IGNORECASE)
+                    wind_match = re.search(r'Wind\s+([A-Z]{1,3})\s+(\d+)\s*(mph|km/h)', text, re.IGNORECASE)
+
+                    if time_match and wind_match:
+                        hour, period = time_match.groups()
+                        dir_raw, speed_raw, unit = wind_match.groups()
+                        
+                        speed_val = float(speed_raw)
+                        # تحويل رياضي احتياطي دائم لضمان الدقة
+                        if unit.lower() == 'mph':
+                            speed_val = round(speed_val * 1.60934, 1)
+                        
+                        direction = clean_direction(dir_raw.upper())
+                        formatted_time_12 = f"{hour.zfill(2)}:00:00 {period.upper()}"
+                        
+                        h24 = int(hour)
+                        if period.upper() == "PM" and h24 != 12: h24 += 12
+                        elif period.upper() == "AM" and h24 == 12: h24 = 0
+                        date_time_24 = f"{tomorrow_str} {str(h24).zfill(2)}:00"
+                        
+                        angle = get_random_angle(direction)
+                        weather_data.append([tomorrow_str, formatted_time_12, date_time_24, speed_val, direction, angle])
+                except: continue
+
+            if weather_data:
+                df = pd.DataFrame(weather_data, columns=['Date', 'Time', 'Date and time', 'wind speed km/hr', 'wind direction', 'Wind Direction Angle'])
+                st.dataframe(df)
+                
+                csv_buffer = BytesIO()
+                df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
+                st.download_button("📥 Download Results", data=csv_buffer.getvalue(), file_name=f"wind_{city_choice}.csv")
+            else:
+                st.error("Extraction failed. Compare the two screenshots to see where the units changed back.")
+
+        except Exception as e:
+            st.error(f"Error: {e}")
+        finally:
+            if 'driver' in locals(): driver.quit()
