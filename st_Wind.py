@@ -65,7 +65,7 @@ city_choice = st.selectbox("Select City", ["ras-el-kanayis", "marsa-matruh"])
 city_codes = {"ras-el-kanayis": "129353", "marsa-matruh": "129332"}
 
 if st.button("🚀 Extract data"):
-    with st.spinner("Processing settings and extracting data..."):
+    with st.spinner("صبرك عليا يا فنانة اخلص تحميل، متستعجيلينيش لأهنج منك..."):
         chrome_options = Options()
         chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
