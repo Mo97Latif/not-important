@@ -14,9 +14,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from io import BytesIO
 
-# --- قواميس الترجمة والزوايا ---
-import random
-
+# --- القواميس وإعدادات الاتجاهات المصححة ---
 translations = {
     'N': 'North', 'S': 'South', 'E': 'East', 'W': 'West',
     'NE': 'North East', 'NW': 'North West', 'SE': 'South East', 'SW': 'South West',
@@ -34,18 +32,15 @@ direction_angles = {
 }
 
 def clean_direction(text):
-    # إزالة أي مسافات زائدة وتحويل لحروف كبيرة
     text = text.upper().strip()
     return translations.get(text, text)
 
 def get_random_angle(direction_name):
-    # البحث عن المطابقة الكاملة أولاً للحصول على أدق زاوية
-    # استخدمنا .get() مباشرة بدلاً من الـ loop لتجنب أخطاء البحث الجزئي
+    # البحث عن مطابقة كاملة أولاً
     base_angle = direction_angles.get(direction_name)
     
     if base_angle is None:
-        # إذا لم يجد مطابقة كاملة (مثلاً بسبب مسافة أو تنسيق)، يبحث عن أطول مفتاح يطابق النص
-        # ترتيب المفاتيح من الأطول للأقصر يضمن صيد "North North West" قبل "North"
+        # البحث عن أطول مفتاح يطابق النص (لتجنب تداخل North مع North West)
         sorted_keys = sorted(direction_angles.keys(), key=len, reverse=True)
         for key in sorted_keys:
             if key in direction_name:
@@ -54,18 +49,18 @@ def get_random_angle(direction_name):
                 
     if base_angle is not None:
         return round((base_angle + random.uniform(-5.0, 5.0)) % 360, 1)
-    
     return 0.0
 
 # --- واجهة Streamlit ---
-st.set_page_config(page_title="بيانات الرياح", page_icon="🌬️")
-st.title("🌬️ Wind Forecast من طرف اخوكي لطيف 🌬️")
+st.set_page_config(page_title="Wind Scraper - US Format", page_icon="🌬️")
+st.title("🌬️ Wind Forecast Extractor")
+st.info("Units: Metric (KM/H) | Date Format: US (MM/DD/YYYY)")
 
 city_choice = st.selectbox("Select City", ["ras-el-kanayis", "marsa-matruh"])
 city_codes = {"ras-el-kanayis": "129353", "marsa-matruh": "129332"}
 
-if st.button("🚀 طلع لي الجدول"):
-    with st.spinner("صبرك عليا يا فنانة اخلص تحميل، متستعجيلينيش لأهنج منك..."):
+if st.button("🚀 Run Scraper"):
+    with st.spinner("Processing settings and extracting data..."):
         chrome_options = Options()
         chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
@@ -76,22 +71,18 @@ if st.button("🚀 طلع لي الجدول"):
         try:
             driver = webdriver.Chrome(service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()), options=chrome_options)
             
-            # 1. ضبط الوحدات عبر الإحداثيات النسبية (فكرتك الذكية)
+            # 1. ضبط الوحدات (تقنية الإحداثيات النسبية)
             driver.get("https://www.accuweather.com/en/settings")
             time.sleep(7)
 
             try:
-                # تحديد مكان كلمة Units كمرجع
                 anchor = driver.find_element(By.XPATH, "//*[text()='Units']")
                 actions = ActionChains(driver)
-                
-                # التحرك يميناً للنقر على القائمة ثم اختيار Metric
                 actions.move_to_element(anchor).move_by_offset(500, 0).click().perform()
                 time.sleep(1)
                 actions.send_keys(Keys.ARROW_DOWN).send_keys(Keys.ENTER).perform()
                 time.sleep(3)
             except:
-                # حماية إضافية عبر الكوكيز في حال فشل التحرك
                 driver.execute_script("document.cookie = 'u=1; domain=.accuweather.com; path=/';")
 
             # 2. الانتقال لصفحة البيانات
@@ -106,7 +97,10 @@ if st.button("🚀 طلع لي الجدول"):
             
             cards = driver.find_elements(By.CSS_SELECTOR, ".hourly-card-n, .accordion-item")
             weather_data = []
-            tomorrow_str = (datetime.now() + timedelta(days=1)).strftime('%d/%m/%Y')
+            
+            # ضبط التاريخ الأمريكي (MM/DD/YYYY)
+            tomorrow = datetime.now() + timedelta(days=1)
+            date_us = tomorrow.strftime('%m/%d/%Y')
 
             for card in cards:
                 try:
@@ -119,32 +113,33 @@ if st.button("🚀 طلع لي الجدول"):
                         dir_raw, speed_raw, unit = wind_match.groups()
                         speed_val = float(speed_raw)
                         
-                        # ضمان التحويل للكيلومتر رياضياً في حال فشل المتصفح في التغيير
+                        # تحويل رياضي احتياطي
                         if unit.lower() == 'mph':
                             speed_val = round(speed_val * 1.60934, 1)
                         
-                        direction = clean_direction(dir_raw.upper())
+                        direction_name = clean_direction(dir_raw.upper())
                         formatted_time_12 = f"{hour.zfill(2)}:00:00 {period.upper()}"
                         
+                        # تحويل للدمج (24 ساعة)
                         h24 = int(hour)
                         if period.upper() == "PM" and h24 != 12: h24 += 12
                         elif period.upper() == "AM" and h24 == 12: h24 = 0
-                        date_time_24 = f"{tomorrow_str} {str(h24).zfill(2)}:00"
+                        date_time_combined = f"{date_us} {str(h24).zfill(2)}:00"
                         
-                        angle = get_random_angle(direction)
-                        weather_data.append([tomorrow_str, formatted_time_12, date_time_24, speed_val, direction, angle])
+                        angle = get_random_angle(direction_name)
+                        weather_data.append([date_us, formatted_time_12, date_time_combined, speed_val, direction_name, angle])
                 except: continue
 
             if weather_data:
                 df = pd.DataFrame(weather_data, columns=['Date', 'Time', 'Date and time', 'wind speed km/hr', 'wind direction', 'Wind Direction Angle'])
-                st.success("✅ الجدول منور اهو، انزلي تحت بقى وانقري لتنزيل ملف الاكسيل")
+                st.success(f"✅ Successfully extracted {len(df)} forecast hours.")
                 st.dataframe(df)
                 
                 csv_buffer = BytesIO()
                 df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
-                st.download_button("📥 ايوا انقري هنا", data=csv_buffer.getvalue(), file_name=f"wind_{city_choice}.csv")
+                st.download_button("📥 Download US Format CSV", data=csv_buffer.getvalue(), file_name=f"wind_us_format_{city_choice}.csv")
             else:
-                st.error("No data found. The site structure might have changed.")
+                st.error("No data extracted. Please check the logs.")
 
         except Exception as e:
             st.error(f"Critical Error: {e}")
