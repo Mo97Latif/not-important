@@ -14,7 +14,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from io import BytesIO
 
-# --- القواميس وإعدادات الاتجاهات المصححة ---
+# --- Configuration & Fixed Dictionaries ---
 translations = {
     'N': 'North', 'S': 'South', 'E': 'East', 'W': 'West',
     'NE': 'North East', 'NW': 'North West', 'SE': 'South East', 'SW': 'South West',
@@ -36,31 +36,27 @@ def clean_direction(text):
     return translations.get(text, text)
 
 def get_random_angle(direction_name):
-    # البحث عن مطابقة كاملة أولاً
     base_angle = direction_angles.get(direction_name)
-    
     if base_angle is None:
-        # البحث عن أطول مفتاح يطابق النص (لتجنب تداخل North مع North West)
         sorted_keys = sorted(direction_angles.keys(), key=len, reverse=True)
         for key in sorted_keys:
             if key in direction_name:
                 base_angle = direction_angles[key]
                 break
-                
     if base_angle is not None:
         return round((base_angle + random.uniform(-5.0, 5.0)) % 360, 1)
     return 0.0
 
-# --- واجهة Streamlit ---
-st.set_page_config(page_title="Wind Scraper - US Format", page_icon="🌬️")
-st.title("🌬️ Wind Forecast Extractor")
-st.info("Units: Metric (KM/H) | Date Format: US (MM/DD/YYYY)")
+# --- Streamlit UI ---
+st.set_page_config(page_title="بيانات الرياح", page_icon="🌬️")
+st.title("🌬️ بيانات الرياح من طرف اخوكي لطيف🌬️")
+st.markdown("Units: **KM/H** | Format: **US Date (MM/DD/YYYY)**")
 
 city_choice = st.selectbox("Select City", ["ras-el-kanayis", "marsa-matruh"])
 city_codes = {"ras-el-kanayis": "129353", "marsa-matruh": "129332"}
 
-if st.button("🚀 Run Scraper"):
-    with st.spinner("Processing settings and extracting data..."):
+if st.button("🚀 طلع لي الداتا"):
+    with st.spinner("صبرك عليا يا بنتي باحسب اهو..."):
         chrome_options = Options()
         chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
@@ -71,10 +67,9 @@ if st.button("🚀 Run Scraper"):
         try:
             driver = webdriver.Chrome(service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()), options=chrome_options)
             
-            # 1. ضبط الوحدات (تقنية الإحداثيات النسبية)
+            # 1. Force Metric Units using the Anchor Position logic
             driver.get("https://www.accuweather.com/en/settings")
             time.sleep(7)
-
             try:
                 anchor = driver.find_element(By.XPATH, "//*[text()='Units']")
                 actions = ActionChains(driver)
@@ -85,20 +80,20 @@ if st.button("🚀 Run Scraper"):
             except:
                 driver.execute_script("document.cookie = 'u=1; domain=.accuweather.com; path=/';")
 
-            # 2. الانتقال لصفحة البيانات
+            # 2. Navigate to Forecast
             city_code = city_codes[city_choice]
             url = f"https://www.accuweather.com/en/eg/{city_choice}/{city_code}/hourly-weather-forecast/{city_code}?day=2"
             driver.get(url)
             time.sleep(7)
 
-            # 3. استخراج البيانات
+            # 3. Data Extraction
             driver.execute_script("window.scrollTo(0, 800);")
             time.sleep(3)
             
             cards = driver.find_elements(By.CSS_SELECTOR, ".hourly-card-n, .accordion-item")
             weather_data = []
             
-            # ضبط التاريخ الأمريكي (MM/DD/YYYY)
+            # Set US Date
             tomorrow = datetime.now() + timedelta(days=1)
             date_us = tomorrow.strftime('%m/%d/%Y')
 
@@ -113,14 +108,12 @@ if st.button("🚀 Run Scraper"):
                         dir_raw, speed_raw, unit = wind_match.groups()
                         speed_val = float(speed_raw)
                         
-                        # تحويل رياضي احتياطي
                         if unit.lower() == 'mph':
                             speed_val = round(speed_val * 1.60934, 1)
                         
                         direction_name = clean_direction(dir_raw.upper())
                         formatted_time_12 = f"{hour.zfill(2)}:00:00 {period.upper()}"
                         
-                        # تحويل للدمج (24 ساعة)
                         h24 = int(hour)
                         if period.upper() == "PM" and h24 != 12: h24 += 12
                         elif period.upper() == "AM" and h24 == 12: h24 = 0
@@ -132,16 +125,24 @@ if st.button("🚀 Run Scraper"):
 
             if weather_data:
                 df = pd.DataFrame(weather_data, columns=['Date', 'Time', 'Date and time', 'wind speed km/hr', 'wind direction', 'Wind Direction Angle'])
-                st.success(f"✅ Successfully extracted {len(df)} forecast hours.")
                 st.dataframe(df)
                 
-                csv_buffer = BytesIO()
-                df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
-                st.download_button("📥 Download US Format CSV", data=csv_buffer.getvalue(), file_name=f"wind_us_format_{city_choice}.csv")
+                # --- Generate XLSX File ---
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df.to_excel(writer, index=False, sheet_name='Wind Forecast')
+                
+                st.download_button(
+                    label="📥 انقري هنا هتنزليه اكسيل",
+                    data=output.getvalue(),
+                    file_name=f"wind_forecast_{city_choice}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+                st.success("الداتا طلعت اهي...انزلي تحت انقري علشان تنزليها")
             else:
-                st.error("No data extracted. Please check the logs.")
+                st.error("Extraction failed. Check if the website layout changed.")
 
         except Exception as e:
-            st.error(f"Critical Error: {e}")
+            st.error(f"Error: {e}")
         finally:
             if 'driver' in locals(): driver.quit()
