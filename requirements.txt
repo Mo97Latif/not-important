@@ -1,4 +1,7 @@
+streamlit
 customtkinter
 selenium
 webdriver-manager
 pandas
+packaging
+setuptools
