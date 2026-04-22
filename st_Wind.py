@@ -125,6 +125,7 @@ if st.button("🚀 طلع لي الداتا"):
 
             if weather_data:
                 df = pd.DataFrame(weather_data, columns=['Date', 'Time', 'Date and time', 'wind speed km/hr', 'wind direction', 'Wind Direction Angle'])
+                st.success("✅ الداتا طلعت اهي...انزلي تحت انقري علشان تنزليها")
                 st.dataframe(df)
                 
                 # --- Generate XLSX File ---
@@ -138,7 +139,6 @@ if st.button("🚀 طلع لي الداتا"):
                     file_name=f"wind_forecast_{city_choice}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-                st.success("الداتا طلعت اهي...انزلي تحت انقري علشان تنزليها")
             else:
                 st.error("Extraction failed. Check if the website layout changed.")
 
