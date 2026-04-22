@@ -15,6 +15,8 @@ from datetime import datetime, timedelta
 from io import BytesIO
 
 # --- قواميس الترجمة والزوايا ---
+import random
+
 translations = {
     'N': 'North', 'S': 'South', 'E': 'East', 'W': 'West',
     'NE': 'North East', 'NW': 'North West', 'SE': 'South East', 'SW': 'South West',
@@ -32,16 +34,28 @@ direction_angles = {
 }
 
 def clean_direction(text):
+    # إزالة أي مسافات زائدة وتحويل لحروف كبيرة
     text = text.upper().strip()
     return translations.get(text, text)
 
 def get_random_angle(direction_name):
-    base_angle = None
-    for key in direction_angles:
-        if key in direction_name:
-            base_angle = direction_angles[key]
-            break
-    return round((base_angle + random.uniform(-5.0, 5.0)) % 360, 1) if base_angle is not None else 0.0
+    # البحث عن المطابقة الكاملة أولاً للحصول على أدق زاوية
+    # استخدمنا .get() مباشرة بدلاً من الـ loop لتجنب أخطاء البحث الجزئي
+    base_angle = direction_angles.get(direction_name)
+    
+    if base_angle is None:
+        # إذا لم يجد مطابقة كاملة (مثلاً بسبب مسافة أو تنسيق)، يبحث عن أطول مفتاح يطابق النص
+        # ترتيب المفاتيح من الأطول للأقصر يضمن صيد "North North West" قبل "North"
+        sorted_keys = sorted(direction_angles.keys(), key=len, reverse=True)
+        for key in sorted_keys:
+            if key in direction_name:
+                base_angle = direction_angles[key]
+                break
+                
+    if base_angle is not None:
+        return round((base_angle + random.uniform(-5.0, 5.0)) % 360, 1)
+    
+    return 0.0
 
 # --- واجهة Streamlit ---
 st.set_page_config(page_title="بيانات الرياح", page_icon="🌬️")
