@@ -14,7 +14,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from io import BytesIO
 
-# --- القواميس المعتادة ---
+# --- القواميس وإعدادات الزوايا ---
 translations = {
     'N': 'North', 'S': 'South', 'E': 'East', 'W': 'West',
     'NE': 'North East', 'NW': 'North West', 'SE': 'South East', 'SW': 'South West',
@@ -45,14 +45,14 @@ def get_random_angle(direction_name):
     return round((base_angle + random.uniform(-5.0, 5.0)) % 360, 1) if base_angle is not None else 0.0
 
 # --- واجهة Streamlit ---
-st.set_page_config(page_title="AccuWeather Settings Debugger", page_icon="🌬️")
-st.title("🌬️ Wind Scraper (Full Debug Mode)")
+st.set_page_config(page_title="AccuWeather Bot Pro", page_icon="🌬️")
+st.title("🌬️ Wind Scraper (The Final Fix)")
 
 city_choice = st.selectbox("Select City", ["ras-el-kanayis", "marsa-matruh"])
 city_codes = {"ras-el-kanayis": "129353", "marsa-matruh": "129332"}
 
-if st.button("Run Scraper & Capture All Steps"):
-    with st.spinner("Executing interactions and capturing screenshots..."):
+if st.button("🚀 Start Extraction & Debug Mode"):
+    with st.spinner("Step 1: Cleaning UI and Setting Units..."):
         chrome_options = Options()
         chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
@@ -65,49 +65,54 @@ if st.button("Run Scraper & Capture All Steps"):
             
             # 1. الذهاب لصفحة الإعدادات
             driver.get("https://www.accuweather.com/en/settings")
-            time.sleep(5)
+            time.sleep(6)
 
-            # تجاوز نافذة الخصوصية
+            # --- التعديل الحاسم: إغلاق نافذة الخصوصية أولاً ---
             try:
-                accept_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Accept')]")
-                driver.execute_script("arguments.click();", accept_btn)
-                time.sleep(2)
-            except: pass
+                privacy_accept = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Accept')] | //div[contains(@class, 'policy')]//button"))
+                )
+                driver.execute_script("arguments.click();", privacy_accept)
+                st.write("✅ Privacy Promise accepted.")
+                time.sleep(3) # انتظار اختفاء النافذة تماماً
+            except:
+                st.write("ℹ️ Privacy popup not detected or already closed.")
 
-            # 2. التفاعل مع قائمة الوحدات المخصصة
+            # --- الآن نغير الوحدات ---
             try:
-                # النقر لفتح القائمة
-                unit_dropdown = WebDriverWait(driver, 10).until(
+                # فتح القائمة المنسدلة
+                dropdown = WebDriverWait(driver, 10).until(
                     EC.element_to_be_clickable((By.XPATH, "//div[contains(text(), 'Units')]/following-sibling::div | //*[contains(text(), 'Imperial')]"))
                 )
-                driver.execute_script("arguments.click();", unit_dropdown)
+                driver.execute_script("arguments.click();", dropdown)
                 time.sleep(2)
                 
-                # النقر على خيار Metric
-                metric_option = WebDriverWait(driver, 10).until(
+                # اختيار Metric
+                metric = WebDriverWait(driver, 10).until(
                     EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Metric')]"))
                 )
-                driver.execute_script("arguments.click();", metric_option)
-                time.sleep(3)
-                st.write("✅ Interaction with settings menu complete.")
+                driver.execute_script("arguments.click();", metric)
+                st.write("✅ Metric units selected successfully.")
+                time.sleep(4)
             except Exception as e:
-                st.warning(f"Settings interaction error: {e}")
+                st.error(f"❌ Interaction failed: {e}")
 
-            # --- التعديل المطلوب: لقطة شاشة لصفحة الإعدادات بعد التغيير ---
-            st.subheader("📸 Step 1: Settings Page Status")
-            st.image(driver.get_screenshot_as_png(), caption="Verification: Did the units switch to Metric in settings?")
+            # لقطة شاشة لصفحة الإعدادات للتأكد
+            st.subheader("📸 Screenshot 1: Settings Status")
+            st.image(driver.get_screenshot_as_png(), caption="Settings Page after Unit Toggling")
 
-            # 3. الانتقال لصفحة الطقس
+            # 2. الذهاب لصفحة الطقس
+            st.write("🔄 Navigating to forecast page...")
             city_code = city_codes[city_choice]
             url = f"https://www.accuweather.com/en/eg/{city_choice}/{city_code}/hourly-weather-forecast/{city_code}?day=2"
             driver.get(url)
-            time.sleep(6)
+            time.sleep(7)
 
             # لقطة شاشة ثانية لصفحة البيانات
-            st.subheader("📸 Step 2: Hourly Forecast Page Status")
-            st.image(driver.get_screenshot_as_png(), caption="Checking units (MPH/KMH) on the forecast page")
+            st.subheader("📸 Screenshot 2: Hourly Page Status")
+            st.image(driver.get_screenshot_as_png(), caption="Hourly Forecast View")
 
-            # 4. استخراج البيانات
+            # 3. استخراج البيانات
             driver.execute_script("window.scrollTo(0, 800);")
             time.sleep(3)
             
@@ -126,7 +131,7 @@ if st.button("Run Scraper & Capture All Steps"):
                         dir_raw, speed_raw, unit = wind_match.groups()
                         
                         speed_val = float(speed_raw)
-                        # تحويل رياضي احتياطي دائم لضمان الدقة
+                        # تحويل رياضي احتياطي إذا ظل الموقع يعرض mph برغم كل المحاولات
                         if unit.lower() == 'mph':
                             speed_val = round(speed_val * 1.60934, 1)
                         
@@ -144,15 +149,16 @@ if st.button("Run Scraper & Capture All Steps"):
 
             if weather_data:
                 df = pd.DataFrame(weather_data, columns=['Date', 'Time', 'Date and time', 'wind speed km/hr', 'wind direction', 'Wind Direction Angle'])
+                st.success(f"Success! {len(df)} hours extracted.")
                 st.dataframe(df)
                 
                 csv_buffer = BytesIO()
                 df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
-                st.download_button("📥 Download Results", data=csv_buffer.getvalue(), file_name=f"wind_{city_choice}.csv")
+                st.download_button("📥 Download Final Report", data=csv_buffer.getvalue(), file_name=f"wind_{city_choice}.csv")
             else:
-                st.error("Extraction failed. Compare the two screenshots to see where the units changed back.")
+                st.error("Data Extraction failed. Review the screenshots to identify the issue.")
 
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"Critical Error: {e}")
         finally:
             if 'driver' in locals(): driver.quit()
