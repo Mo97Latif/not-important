@@ -49,11 +49,17 @@ def get_random_angle(direction_name):
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="بيانات الرياح", page_icon="🌬️")
-st.title("🌬️ بيانات الرياح من طرف اخوكي لطيف🌬️")
+st.title("🌬️ بيانات الرياح من طرف اخوكي لطيف 🌬️")
 st.markdown("Units: **KM/H** | Format: **US Date (MM/DD/YYYY)**")
 
-city_choice = st.selectbox("Select City", ["ras-el-kanayis", "marsa-matruh"])
+# اختيار المدينة
+city_choice = st.selectbox("اختار المدينة (Select City)", ["ras-el-kanayis", "marsa-matruh"])
 city_codes = {"ras-el-kanayis": "129353", "marsa-matruh": "129332"}
+
+# اختيار اليوم (التعديل الجديد)
+day_label = st.selectbox("اختار اليوم (Select Day)", ["Tomorrow (بكرة)", "Day After Tomorrow (بعد بكرة)", "Following Day (اليوم الثالث)"])
+day_map = {"Tomorrow (بكرة)": 2, "Day After Tomorrow (بعد بكرة)": 3, "Following Day (اليوم الثالث)": 4}
+selected_day_num = day_map[day_label]
 
 if st.button("🚀 طلع لي الداتا"):
     with st.spinner("صبرك عليا يا بنتي باحسب اهو..."):
@@ -80,9 +86,9 @@ if st.button("🚀 طلع لي الداتا"):
             except:
                 driver.execute_script("document.cookie = 'u=1; domain=.accuweather.com; path=/';")
 
-            # 2. Navigate to Forecast
+            # 2. Navigate to Forecast (استخدام اليوم المختار في الرابط)
             city_code = city_codes[city_choice]
-            url = f"https://www.accuweather.com/en/eg/{city_choice}/{city_code}/hourly-weather-forecast/{city_code}?day=2"
+            url = f"https://www.accuweather.com/en/eg/{city_choice}/{city_code}/hourly-weather-forecast/{city_code}?day={selected_day_num}"
             driver.get(url)
             time.sleep(7)
 
@@ -93,9 +99,10 @@ if st.button("🚀 طلع لي الداتا"):
             cards = driver.find_elements(By.CSS_SELECTOR, ".hourly-card-n, .accordion-item")
             weather_data = []
             
-            # Set US Date
-            tomorrow = datetime.now() + timedelta(days=1)
-            date_us = tomorrow.strftime('%m/%d/%Y')
+            # حساب التاريخ الأمريكي بناءً على اليوم المختار
+            # لو اخترنا بكرة (day=2) بنضيف يوم واحد، لو بعده (day=3) بنضيف يومين، وهكذا
+            target_date = datetime.now() + timedelta(days=(selected_day_num - 1))
+            date_us = target_date.strftime('%m/%d/%Y')
 
             for card in cards:
                 try:
@@ -117,10 +124,10 @@ if st.button("🚀 طلع لي الداتا"):
                         h24 = int(hour)
                         if period.upper() == "PM" and h24 != 12: h24 += 12
                         elif period.upper() == "AM" and h24 == 12: h24 = 0
-                        date_time_combined = f"{date_us} {str(h24).zfill(2)}:00"
+                        date_combined = f"{date_us} {str(h24).zfill(2)}:00"
                         
                         angle = get_random_angle(direction_name)
-                        weather_data.append([date_us, formatted_time_12, date_time_combined, speed_val, direction_name, angle])
+                        weather_data.append([date_us, formatted_time_12, date_combined, speed_val, direction_name, angle])
                 except: continue
 
             if weather_data:
@@ -128,7 +135,6 @@ if st.button("🚀 طلع لي الداتا"):
                 st.success("✅ الداتا طلعت اهي...انزلي تحت انقري علشان تنزليها")
                 st.dataframe(df)
                 
-                # --- Generate XLSX File ---
                 output = BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     df.to_excel(writer, index=False, sheet_name='Wind Forecast')
@@ -136,7 +142,7 @@ if st.button("🚀 طلع لي الداتا"):
                 st.download_button(
                     label="📥 انقري هنا هتنزليه اكسيل",
                     data=output.getvalue(),
-                    file_name=f"wind_forecast_{city_choice}.xlsx",
+                    file_name=f"wind_forecast_{city_choice}_day_{selected_day_num}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
             else:
