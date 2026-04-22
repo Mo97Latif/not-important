@@ -14,7 +14,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from io import BytesIO
 
-# --- القواميس (تأكد من وجود الاختصارات الإنجليزية) ---
+# --- القواميس وإعدادات الترجمة ---
 translations = {
     'شمالية شرقية': 'North East', 'شمالية غربية': 'North West',
     'جنوبية شرقية': 'South East', 'جنوبية غربية': 'South West',
@@ -49,20 +49,18 @@ def get_random_angle(direction_name):
     return round((base_angle + random.uniform(-5.0, 5.0)) % 360, 1)
 
 # --- واجهة Streamlit ---
-st.set_page_config(page_title="Wind Forecast Scraper", page_icon="🌬️")
+st.set_page_config(page_title="Wind Scraper", page_icon="🌬️")
 st.title("🌬️ Tomorrow's Hourly Wind Scraper")
 
 city_choice = st.selectbox("Select City", ["ras-el-kanayis", "marsa-matruh"])
 city_codes = {"ras-el-kanayis": "129353", "marsa-matruh": "129332"}
 
 if st.button("Start Extraction"):
-    with st.spinner("Executing Stealth Scraping..."):
+    with st.spinner("Handling Privacy Popup & Extracting..."):
         chrome_options = Options()
         chrome_options.add_argument("--headless")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
-        # أهم وسيط لتجاوز كشف البوتات
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 
         try:
@@ -71,23 +69,30 @@ if st.button("Start Extraction"):
                 options=chrome_options
             )
             
-            # منع الموقع من اكتشاف السيلينيوم
-            driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-
             city_code = city_codes[city_choice]
-            # نستخدم الرابط الإنجليزي لأنه أسرع في التحميل على السيرفرات
             url = f"https://www.accuweather.com/en/eg/{city_choice}/{city_code}/hourly-weather-forecast/{city_code}?day=2"
-            
             driver.get(url)
-            
-            # انتظار ذكي لظهور بطاقات الساعات
-            wait = WebDriverWait(driver, 20)
+
+            # --- التعديل الجوهري: التعامل مع الـ Privacy Popup ---
+            try:
+                # ننتظر ظهور زر الـ "Accept" (عادة يكون بكلاس .policy-accept)
+                accept_button = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, ".policy-accept, .btn-primary.policy-accept"))
+                )
+                accept_button.click()
+                st.info("✅ Privacy promise accepted.")
+                time.sleep(2)
+            except:
+                # إذا لم يظهر، قد يكون تم إغلاقه تلقائياً أو أن الموقع لم يظهره هذه المرة
+                pass
+
+            # انتظار ظهور الساعات
+            wait = WebDriverWait(driver, 15)
             wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".hourly-card-n, .accordion-item")))
 
-            # خطوة حاسمة: التمرير لأسفل ببطء لتحفيز تحميل البيانات المخفية
-            for _ in range(3):
-                driver.execute_script("window.scrollBy(0, 800);")
-                time.sleep(1)
+            # تمرير الصفحة لضمان تحميل كل البيانات
+            driver.execute_script("window.scrollTo(0, 1000);")
+            time.sleep(3)
 
             cards = driver.find_elements(By.CSS_SELECTOR, ".hourly-card-n, .accordion-item")
             weather_data = []
@@ -95,28 +100,22 @@ if st.button("Start Extraction"):
 
             for card in cards:
                 try:
-                    # نضغط على الكارت برمجياً لضمان ظهور تفاصيل الرياح
-                    driver.execute_script("arguments.click();", card)
-                    
                     full_text = card.text.replace('\n', ' ')
-                    
-                    # استخراج الوقت
                     time_match = re.search(r'(\d+)\s*(AM|PM)', full_text, re.IGNORECASE)
                     if not time_match: continue
                     
-                    hour = time_match.group(1)
-                    period = time_match.group(2).upper()
-
-                    # استخراج الرياح (نبحث عن رقم يليه km/h)
-                    # هذا النمط يمسك "NW 15 km/h" أو "Wind NW 15 km/h"
+                    # محاولة استخراج الرياح بنمط مرن
                     wind_match = re.search(r'(?:Wind\s+)?([A-Z]{1,3})\s+(\d+)\s*km/h', full_text, re.IGNORECASE)
 
                     if wind_match:
+                        hour = time_match.group(1)
+                        period = time_match.group(2).upper()
                         wind_dir_raw = wind_match.group(1)
                         wind_speed = wind_match.group(2)
-                        wind_direction = clean_direction(wind_dir_raw)
                         
+                        wind_direction = clean_direction(wind_dir_raw)
                         formatted_time_12 = f"{hour.zfill(2)}:00:00 {period}"
+                        
                         h24 = int(hour)
                         if period == "PM" and h24 != 12: h24 += 12
                         elif period == "AM" and h24 == 12: h24 = 0
@@ -129,17 +128,16 @@ if st.button("Start Extraction"):
 
             if weather_data:
                 df = pd.DataFrame(weather_data, columns=['Date', 'Time', 'Date and time', 'wind speed km/hr', 'wind direction', 'Wind Direction Angle'])
-                st.success(f"Successfully extracted {len(df)} hours!")
+                st.success(f"Success! Found {len(df)} hours.")
                 st.dataframe(df)
                 
                 csv_buffer = BytesIO()
                 df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
                 st.download_button("📥 Download Results", data=csv_buffer.getvalue(), file_name=f"wind_{city_choice}.csv")
             else:
-                st.error("Connection successful, but wind data was hidden. Try running the EXE version locally for better results.")
+                st.error("Could not find wind data. The structure might have changed.")
 
         except Exception as e:
-            st.error(f"Error during extraction: {e}")
+            st.error(f"Error: {e}")
         finally:
-            if 'driver' in locals():
-                driver.quit()
+            if 'driver' in locals(): driver.quit()
