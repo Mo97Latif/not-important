@@ -64,7 +64,7 @@ st.title("🌬️ Wind Forecast من طرف اخوكي لطيف 🌬️")
 city_choice = st.selectbox("Select City", ["ras-el-kanayis", "marsa-matruh"])
 city_codes = {"ras-el-kanayis": "129353", "marsa-matruh": "129332"}
 
-if st.button("🚀 Extract data"):
+if st.button("🚀 طلع لي الجدول"):
     with st.spinner("صبرك عليا يا فنانة اخلص تحميل، متستعجيلينيش لأهنج منك..."):
         chrome_options = Options()
         chrome_options.add_argument("--headless=new")
@@ -137,12 +137,12 @@ if st.button("🚀 Extract data"):
 
             if weather_data:
                 df = pd.DataFrame(weather_data, columns=['Date', 'Time', 'Date and time', 'wind speed km/hr', 'wind direction', 'Wind Direction Angle'])
-                st.success(f"✅ Successfully extracted {len(df)} forecast hours.")
+                st.success("✅ الجدول منور اهو، انزلي تحت بقى وانقري لتنزيل ملف الاكسيل")
                 st.dataframe(df)
                 
                 csv_buffer = BytesIO()
                 df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
-                st.download_button("📥 Download Excel Sheet", data=csv_buffer.getvalue(), file_name=f"wind_{city_choice}.csv")
+                st.download_button("📥 ايوا انقري هنا", data=csv_buffer.getvalue(), file_name=f"wind_{city_choice}.csv")
             else:
                 st.error("No data found. The site structure might have changed.")
 
