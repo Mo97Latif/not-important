@@ -44,8 +44,8 @@ def get_random_angle(direction_name):
     return round((base_angle + random.uniform(-5.0, 5.0)) % 360, 1) if base_angle is not None else 0.0
 
 # --- واجهة Streamlit ---
-st.set_page_config(page_title="Wind Scraper Pro", page_icon="🌬️")
-st.title("🌬️ Wind Forecast Extractor 🌬️")
+st.set_page_config(page_title="بيانات الرياح", page_icon="🌬️")
+st.title("🌬️ Wind Forecast من طرف اخوكي لطيف 🌬️")
 
 city_choice = st.selectbox("Select City", ["ras-el-kanayis", "marsa-matruh"])
 city_codes = {"ras-el-kanayis": "129353", "marsa-matruh": "129332"}
@@ -128,7 +128,7 @@ if st.button("🚀 Extract data"):
                 
                 csv_buffer = BytesIO()
                 df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
-                st.download_button("📥 Download Final CSV", data=csv_buffer.getvalue(), file_name=f"wind_{city_choice}.csv")
+                st.download_button("📥 Download Excel Sheet", data=csv_buffer.getvalue(), file_name=f"wind_{city_choice}.csv")
             else:
                 st.error("No data found. The site structure might have changed.")
 
