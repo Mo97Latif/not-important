@@ -1,7 +1,8 @@
 streamlit
-customtkinter
 selenium
 webdriver-manager
 pandas
+requests
+customtkinter
 packaging
 setuptools
