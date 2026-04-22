@@ -6,3 +6,4 @@ requests
 customtkinter
 packaging
 setuptools
+openpyxl
