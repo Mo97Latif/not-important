@@ -49,18 +49,29 @@ def get_random_angle(direction_name):
     return round((base_angle + random.uniform(-5.0, 5.0)) % 360, 1)
 
 # --- واجهة Streamlit ---
-st.set_page_config(page_title="Wind Scraper", page_icon="🌬️")
+st.set_page_config(page_title="Wind Scraper Pro", page_icon="🌬️")
 st.title("🌬️ Tomorrow's Hourly Wind Scraper")
 
 city_choice = st.selectbox("Select City", ["ras-el-kanayis", "marsa-matruh"])
 city_codes = {"ras-el-kanayis": "129353", "marsa-matruh": "129332"}
 
-if st.button("Start Extraction"):
-    with st.spinner("Handling Privacy Popup & Extracting..."):
+if st.button("Download File"):
+    with st.spinner("Extracting data"):
+        
+        # --- الإعدادات الجديدة والمطورة للمتصفح ---
         chrome_options = Options()
-        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--headless=new") # استخدام المحرك الجديد لإخفاء المتصفح
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--window-size=1920,1080")
+        
+        # إخفاء هوية السيلينيوم (تخطي كشف البوتات)
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+        
+        # هوية متصفح حقيقي (User-Agent)
         chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 
         try:
@@ -69,75 +80,33 @@ if st.button("Start Extraction"):
                 options=chrome_options
             )
             
+            # حقن سكريبت إضافي لمنع اكتشاف المتصفح الآلي
+            driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
             city_code = city_codes[city_choice]
             url = f"https://www.accuweather.com/en/eg/{city_choice}/{city_code}/hourly-weather-forecast/{city_code}?day=2"
             driver.get(url)
 
-            # --- التعديل الجوهري: التعامل مع الـ Privacy Popup ---
+            # 1. التعامل مع نافذة الخصوصية (Privacy Popup)
             try:
-                # ننتظر ظهور زر الـ "Accept" (عادة يكون بكلاس .policy-accept)
-                accept_button = WebDriverWait(driver, 10).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, ".policy-accept, .btn-primary.policy-accept"))
+                accept_btn = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, ".policy-accept"))
                 )
-                accept_button.click()
-                st.info("✅ Privacy promise accepted.")
+                driver.execute_script("arguments.click();", accept_btn)
                 time.sleep(2)
             except:
-                # إذا لم يظهر، قد يكون تم إغلاقه تلقائياً أو أن الموقع لم يظهره هذه المرة
                 pass
 
-            # انتظار ظهور الساعات
-            wait = WebDriverWait(driver, 15)
+            # 2. الانتظار حتى تحميل بيانات الساعات
+            wait = WebDriverWait(driver, 20)
             wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".hourly-card-n, .accordion-item")))
 
-            # تمرير الصفحة لضمان تحميل كل البيانات
+            # 3. التمرير لأسفل ببطء لضمان تحميل كافة العناصر
             driver.execute_script("window.scrollTo(0, 1000);")
-            time.sleep(3)
+            time.sleep(5)
 
             cards = driver.find_elements(By.CSS_SELECTOR, ".hourly-card-n, .accordion-item")
             weather_data = []
             tomorrow_str = (datetime.now() + timedelta(days=1)).strftime('%d/%m/%Y')
 
-            for card in cards:
-                try:
-                    full_text = card.text.replace('\n', ' ')
-                    time_match = re.search(r'(\d+)\s*(AM|PM)', full_text, re.IGNORECASE)
-                    if not time_match: continue
-                    
-                    # محاولة استخراج الرياح بنمط مرن
-                    wind_match = re.search(r'(?:Wind\s+)?([A-Z]{1,3})\s+(\d+)\s*km/h', full_text, re.IGNORECASE)
-
-                    if wind_match:
-                        hour = time_match.group(1)
-                        period = time_match.group(2).upper()
-                        wind_dir_raw = wind_match.group(1)
-                        wind_speed = wind_match.group(2)
-                        
-                        wind_direction = clean_direction(wind_dir_raw)
-                        formatted_time_12 = f"{hour.zfill(2)}:00:00 {period}"
-                        
-                        h24 = int(hour)
-                        if period == "PM" and h24 != 12: h24 += 12
-                        elif period == "AM" and h24 == 12: h24 = 0
-                        date_time_24 = f"{tomorrow_str} {str(h24).zfill(2)}:00"
-                        
-                        angle = get_random_angle(wind_direction)
-                        weather_data.append([tomorrow_str, formatted_time_12, date_time_24, wind_speed, wind_direction, angle])
-                except:
-                    continue
-
-            if weather_data:
-                df = pd.DataFrame(weather_data, columns=['Date', 'Time', 'Date and time', 'wind speed km/hr', 'wind direction', 'Wind Direction Angle'])
-                st.success(f"Success! Found {len(df)} hours.")
-                st.dataframe(df)
-                
-                csv_buffer = BytesIO()
-                df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
-                st.download_button("📥 Download Results", data=csv_buffer.getvalue(), file_name=f"wind_{city_choice}.csv")
-            else:
-                st.error("Could not find wind data. The structure might have changed.")
-
-        except Exception as e:
-            st.error(f"Error: {e}")
-        finally:
-            if 'driver' in locals(): driver.quit()
+            for card
