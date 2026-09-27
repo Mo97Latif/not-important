@@ -61,7 +61,10 @@ def generate_smooth_angles(records):
        (~355 deg), since that's the side actually adjacent to NNE.
     2. A run of identical directions ramps in ~2 deg/hour steps toward the
        edge shared with the next differing direction, instead of jumping
-       around on an undirected random walk.
+       around on an undirected random walk - and, critically, every hour
+       in that run gets a genuinely distinct value (min ~0.12 deg apart,
+       enforced after any boundary clamping) so a run of 3+ identical
+       directions never renders the same angle twice in a row.
 
     Implementation note / bug fix: the previous version kept one
     ever-growing "current_val" and only reduced it mod 360 when appending
@@ -107,6 +110,11 @@ def generate_smooth_angles(records):
 
     angles_unwrapped = [0.0] * n
     current_val = None
+    margin = 0.2
+    # minimum gap enforced between consecutive hours of the same run -
+    # comfortably above the 0.05 threshold where rounding to 1 decimal
+    # could otherwise make two distinct angles display identically.
+    min_gap = 0.12
 
     for ridx, (direction, start, end) in enumerate(runs):
         ref = current_val if current_val is not None else sum(direction_ranges.get(direction, (0.0, 360.0))) / 2.0
@@ -130,19 +138,62 @@ def generate_smooth_angles(records):
             # next direction rather than a flat, direction-blind pick.
             current_val = random.triangular(low, high, edge)
 
+        entry = current_val
+        vals = [0.0] * length
+
+        if heading_up is None:
+            # last run of the day: no "next edge" to aim at, just wander
+            # gently - but still enforce a real gap every hour so a long
+            # trailing run of the same direction can't flatline either.
+            v = entry
+            for step in range(length):
+                v += (edge - v) * 0.2 + random.uniform(-0.8, 0.8)
+                v = max(low + margin, min(high - margin, v))
+                vals[step] = v
+            drift_up = (vals[-1] >= entry) if length else True
+            for k in range(1, length):
+                if drift_up and vals[k] <= vals[k - 1] + min_gap - 1e-9:
+                    vals[k] = min(high - margin, vals[k - 1] + min_gap)
+                elif not drift_up and vals[k] >= vals[k - 1] - min_gap + 1e-9:
+                    vals[k] = max(low + margin, vals[k - 1] - min_gap)
+        else:
+            # rule 2: ramp toward the edge shared with the next direction
+            # in ~2 deg/hour steps (never flat, never leaving this band).
+            sign = 1 if heading_up else -1
+            avg_step = random.uniform(1.5, 2.1)
+            needed = min_gap * length
+
+            # how much room does the heading direction actually have from
+            # the inherited entry point? if a big jump left entry sitting
+            # right against this run's own edge already, there may not be
+            # enough room left to fit `length` distinct steps before
+            # hitting the band's boundary - snap entry to the *far* side
+            # of this direction's band instead of squeezing multiple
+            # hours against the same edge value (that squeeze is what
+            # produced identical back-to-back angles before).
+            available = (high - margin) - entry if heading_up else entry - (low + margin)
+            if available < needed:
+                entry = low + margin if heading_up else high - margin
+
+            desired_exit = entry + sign * avg_step * length
+            exit_val = max(low + margin, min(high - margin, desired_exit))
+            step_gap = (exit_val - entry) / length
+
+            for step in range(length):
+                base = entry + step_gap * (step + 1)
+                jitter = random.uniform(-abs(step_gap) * 0.2, abs(step_gap) * 0.2)
+                v = max(low + margin, min(high - margin, base + jitter))
+                vals[step] = v
+
+            for k in range(1, length):
+                if heading_up and vals[k] <= vals[k - 1] + min_gap - 1e-9:
+                    vals[k] = min(high - margin, vals[k - 1] + min_gap)
+                elif not heading_up and vals[k] >= vals[k - 1] - min_gap + 1e-9:
+                    vals[k] = max(low + margin, vals[k - 1] - min_gap)
+
+        current_val = vals[-1]
         for step in range(length):
-            if heading_up is None:
-                current_val += (edge - current_val) * 0.2 + random.uniform(-0.8, 0.8)
-            else:
-                step_size = random.uniform(1.3, 2.3)  # rule 2: ~2 deg/hour
-                current_val += step_size if heading_up else -step_size
-
-            # rule 2 fix for bug 2: never let an hour's angle leave its own
-            # direction's band, however far current_val has drifted.
-            margin = 0.2
-            current_val = max(low + margin, min(high - margin, current_val))
-
-            angles_unwrapped[start + step] = current_val
+            angles_unwrapped[start + step] = vals[step]
 
     return [round(v % 360, 1) for v in angles_unwrapped]
 
