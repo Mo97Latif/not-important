@@ -114,7 +114,7 @@ def generate_smooth_angles(records):
     # minimum gap enforced between consecutive hours of the same run -
     # comfortably above the 0.05 threshold where rounding to 1 decimal
     # could otherwise make two distinct angles display identically.
-    min_gap = 1.12
+    min_gap = 0.56
 
     for ridx, (direction, start, end) in enumerate(runs):
         ref = current_val if current_val is not None else sum(direction_ranges.get(direction, (0.0, 360.0))) / 2.0
@@ -206,8 +206,6 @@ def generate_smooth_angles(records):
 st.set_page_config(page_title="بيانات الرياح", page_icon="🌬️")
 st.title("🌬️ بيانات الرياح من طرف اخوكي لطيف 🌬️")
 st.markdown("Units: **KM/H** | Format: **US Date (MM/DD/YYYY)**")
-st.caption("⚠️ The 'Wind Direction Angle' column is a simulated estimate inside AccuWeather's "
-           "compass sector, not a measured degree value — AccuWeather never publishes exact degrees.")
 
 city_choice = st.selectbox("اختار المدينة (Select City)", ["ras-el-kanayis", "marsa-matruh", "ras-alam-el-rum"])
 city_codes = {
