@@ -53,41 +53,98 @@ def generate_smooth_angles(records):
     plausible continuous angle inside that compass sector - it is not a real
     measured value. Keep the column labeled clearly as estimated/simulated
     so nobody downstream mistakes it for an actual instrument reading.
+
+    Two rules drive the simulation:
+    1. The angle picked for an hour leans toward whichever direction comes
+       *next* - e.g. North followed by NNE should sit near North's upper
+       edge (~8.6 deg after wrap), not drift toward the opposite edge
+       (~355 deg), since that's the side actually adjacent to NNE.
+    2. A run of identical directions ramps in ~2 deg/hour steps toward the
+       edge shared with the next differing direction, instead of jumping
+       around on an undirected random walk.
+
+    Implementation note / bug fix: the previous version kept one
+    ever-growing "current_val" and only reduced it mod 360 when appending
+    to the output, but compared that same un-reduced, potentially
+    multi-rotation value directly against the raw 350-370 bounds to decide
+    whether it was still "in range". Once current_val drifted past one
+    full rotation (which happens over a full day), that check went stale
+    and the correction step could shove it anywhere - which is why North
+    hours could render angles below 350. Here, every direction's range is
+    re-anchored ("unwrapped") relative to the running value before any
+    comparison, and the running value is clamped to its *own* direction's
+    band on every single hour, so a direction can never render an angle
+    outside its own band.
     """
-    angles = []
     if not records:
-        return angles
+        return []
 
-    first_dir = records[0]['direction']
-    low, high = direction_ranges.get(first_dir, (0.0, 360.0))
-    current_val = random.uniform(low, high)
-    angles.append(round(current_val % 360, 1))
+    dirs = [r['direction'] for r in records]
+    n = len(dirs)
 
-    momentum = random.choice([-1.2, 1.2]) * random.uniform(0.6, 1.4)
+    # group consecutive equal directions into runs: (direction, start, end)
+    runs = []
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and dirs[j + 1] == dirs[i]:
+            j += 1
+        runs.append((dirs[i], i, j))
+        i = j + 1
 
-    for i in range(1, len(records)):
-        dir_name = records[i]['direction']
-        low, high = direction_ranges.get(dir_name, (0.0, 360.0))
+    def unwrap_range(direction, ref):
+        """(low, high) for `direction`, shifted by +-360 so it sits in the
+        same 'rotation' as `ref` - keeps the whole day on one continuous
+        number line instead of resetting at the 0/360 seam each hour."""
+        low, high = direction_ranges.get(direction, (0.0, 360.0))
+        while low < ref - 180:
+            low += 360
+            high += 360
+        while low > ref + 180:
+            low -= 360
+            high -= 360
+        return low, high
 
-        momentum += random.uniform(-0.6, 0.6)
-        momentum = max(-2.5, min(2.5, momentum))
+    angles_unwrapped = [0.0] * n
+    current_val = None
 
-        current_val += momentum
+    for ridx, (direction, start, end) in enumerate(runs):
+        ref = current_val if current_val is not None else sum(direction_ranges.get(direction, (0.0, 360.0))) / 2.0
+        low, high = unwrap_range(direction, ref)
+        length = end - start + 1
 
-        in_range = False
-        if high > 360:
-            in_range = (350.0 <= current_val <= 370.0)
+        # which way is this run heading? bias toward the next *different*
+        # direction's range (rule 1); with no next direction (end of day),
+        # just settle near the middle of the current range.
+        if ridx + 1 < len(runs):
+            next_low, next_high = unwrap_range(runs[ridx + 1][0], (low + high) / 2.0)
+            heading_up = (next_low + next_high) / 2.0 >= (low + high) / 2.0
+            edge = high if heading_up else low
         else:
-            in_range = (low <= current_val <= high)
+            heading_up = None
+            edge = (low + high) / 2.0
 
-        if not in_range:
-            target_mid = (low + high) / 2.0
-            diff = target_mid - current_val
-            current_val += diff * 0.35 + random.uniform(-0.8, 0.8)
+        if current_val is None:
+            # very first hour of the whole sequence: no prior momentum to
+            # inherit, so bias the initial pick toward the edge facing the
+            # next direction rather than a flat, direction-blind pick.
+            current_val = random.triangular(low, high, edge)
 
-        angles.append(round(current_val % 360, 1))
+        for step in range(length):
+            if heading_up is None:
+                current_val += (edge - current_val) * 0.2 + random.uniform(-0.8, 0.8)
+            else:
+                step_size = random.uniform(1.3, 2.3)  # rule 2: ~2 deg/hour
+                current_val += step_size if heading_up else -step_size
 
-    return angles
+            # rule 2 fix for bug 2: never let an hour's angle leave its own
+            # direction's band, however far current_val has drifted.
+            margin = 0.2
+            current_val = max(low + margin, min(high - margin, current_val))
+
+            angles_unwrapped[start + step] = current_val
+
+    return [round(v % 360, 1) for v in angles_unwrapped]
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="بيانات الرياح", page_icon="🌬️")
