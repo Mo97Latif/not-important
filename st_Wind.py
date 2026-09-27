@@ -127,7 +127,7 @@ def generate_smooth_angles(records):
         if ridx + 1 < len(runs):
             next_low, next_high = unwrap_range(runs[ridx + 1][0], (low + high) / 2.0)
             heading_up = (next_low + next_high) / 2.0 >= (low + high) / 2.0
-            edge = low if heading_up else high
+            edge = high if heading_up else low
         else:
             heading_up = None
             edge = (low + high) / 2.0
@@ -159,7 +159,7 @@ def generate_smooth_angles(records):
         else:
             # rule 2: ramp toward the edge shared with the next direction
             # in ~2 deg/hour steps (never flat, never leaving this band).
-            sign = 1 if heading_up else -1
+            sign = -1 if heading_up else 1
             avg_step = random.uniform(1.5, 2.1)
             needed = min_gap * length
 
