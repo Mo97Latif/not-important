@@ -278,7 +278,7 @@ if st.button("🚀 طلع لي الداتا"):
                     'Date', 'Time', 'Date and time', 'wind speed km/hr',
                     'wind direction', 'Wind Direction Angle (simulated)'
                 ])
-                st.success("✅ الداتا طلعت اهي بالزوايا المتسلسلة طول اليوم...انزلي تحت انقري علشان تنزليها")
+                st.success("✅ الداتا طلعت اهي...انزلي تحت انقري علشان تنزليها")
                 st.dataframe(df)
 
                 output = BytesIO()
