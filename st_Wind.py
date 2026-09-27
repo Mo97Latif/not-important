@@ -207,11 +207,12 @@ st.set_page_config(page_title="بيانات الرياح", page_icon="🌬️")
 st.title("🌬️ بيانات الرياح من طرف اخوكي لطيف 🌬️")
 st.markdown("Units: **KM/H** | Format: **US Date (MM/DD/YYYY)**")
 
-city_choice = st.selectbox("اختار المدينة (Select City)", ["ras-el-kanayis", "marsa-matruh", "ras-alam-el-rum"])
+city_choice = st.selectbox("اختار المدينة (Select City)", ["ras-el-kanayis", "marsa-matruh", "ras-alam-el-rum", "alexandria"])
 city_codes = {
     "ras-el-kanayis": "129353",
     "marsa-matruh": "129332",
-    "ras-alam-el-rum": "129352"
+    "ras-alam-el-rum": "129352",
+    "alexandria": "126995"
 }
 
 day_label = st.selectbox("اختار اليوم (Select Day)", ["Today (النهاردة)", "Tomorrow (بكرة)", "Day After Tomorrow (بعد بكرة)", "Following Day (اليوم الثالث)"])
