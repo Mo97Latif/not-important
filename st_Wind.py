@@ -23,9 +23,9 @@ translations = {
     'م': 'PM', 'ص': 'AM'
 }
 
-# نطاقات الزوايا الجديدة لكل اتجاه
+# نطاقات الزوايا الجديدة لكل اتجاه (الشمال بيمتد فوق 360 لتسهيل حسابات الـ Negative Shift والالتفاف)
 direction_ranges = {
-    'North': (350.0, 370.0),       # (350, 10) متصلة عبر 360
+    'North': (350.0, 370.0),
     'North North East': (10.0, 30.0),
     'North East': (35.0, 55.0),
     'East North East': (55.0, 75.0),
@@ -43,60 +43,50 @@ direction_ranges = {
     'North North West': (325.0, 345.0)
 }
 
-compass_order = [
-    'North', 'North North East', 'North East', 'East North East',
-    'East', 'East South East', 'South East', 'South South East',
-    'South', 'South South West', 'South West', 'West South West',
-    'West', 'West North West', 'North West', 'North North West'
-]
-
 def clean_direction(text):
     text = text.upper().strip()
     return translations.get(text, text)
 
 def generate_smooth_angles(records):
-    """حساب الزوايا بناءً على نطاق الاتجاه وتأثر الساعة التالية والاتجاه العام"""
+    """توليد زوايا متسلسلة ومستمرة طوال اليوم مع دعم الـ Negative Shift والالتفاف عند 360"""
     angles = []
-    current_val = None
+    if not records:
+        return angles
     
-    for i, record in enumerate(records):
-        dir_name = record['direction']
+    # ابدأ بأول زاوية عشوائية داخل نطاق أول ساعة
+    first_dir = records[0]['direction']
+    low, high = direction_ranges.get(first_dir, (0.0, 360.0))
+    current_val = random.uniform(low, high)
+    angles.append(round(current_val % 360, 1))
+    
+    # تحديد اتجاه وزخم الحركة العام (Momentum) على مدار اليوم كله
+    momentum = random.choice([-1.2, 1.2]) * random.uniform(0.6, 1.4)
+    
+    for i in range(1, len(records)):
+        dir_name = records[i]['direction']
         low, high = direction_ranges.get(dir_name, (0.0, 360.0))
         
-        # معرفة الاتجاه في الساعة التالية لتحديد اتجاه الميل (Trend)
-        next_dir = records[i+1]['direction'] if i + 1 < len(records) else dir_name
+        # تعديل الزخم تدريجياً لضمان الاستمرارية طوال اليوم (سواء بزاوية موجبة أو سالبة)
+        momentum += random.uniform(-0.6, 0.6)
+        momentum = max(-2.5, min(2.5, momentum))
         
-        try:
-            curr_idx = compass_order.index(dir_name)
-            next_idx = compass_order.index(next_dir)
-        except:
-            curr_idx, next_idx = 0, 0
-            
-        # تحديد الانحراف بناءً على الساعة اللي بعدها
-        if next_idx > curr_idx or (curr_idx == 15 and next_idx == 0):
-            trend_bias = 1.8  # بيزيد ناحية الشرق/الاتجاه التالي
-        elif next_idx < curr_idx or (curr_idx == 0 and next_idx == 15):
-            trend_bias = -1.8 # بيقل
+        current_val += momentum
+        
+        # التحقق مما إذا كانت القيمة داخل النطاق المسموح للاتجاه الحالي (مع مراعاة الـ Wrap-around)
+        in_range = False
+        if high > 360: # لمعالجة الشمال الذي يمر عبر 360/0
+            in_range = (350.0 <= current_val <= 370.0)
         else:
-            trend_bias = random.choice([-1.2, 1.2])
+            in_range = (low <= current_val <= high)
             
-        if current_val is None:
-            current_val = random.uniform(low, high if high <= 360 else 360)
-        else:
-            step = random.uniform(-0.8, 1.5) + trend_bias
-            current_val += step
+        # إذا خرجت القيمة عن النطاق المسموح، نقوم بسحبها بسلاسة نحو منتصف نطاق الاتجاه الجديد
+        if not in_range:
+            target_mid = (low + high) / 2.0
+            diff = target_mid - current_val
+            current_val += diff * 0.35 + random.uniform(-0.8, 0.8)
             
-            # الالتزام بحدود النطاق للاتجاه الحالي
-            if low > 350:  # لحالة الشمال
-                if current_val < low and current_val > 10:
-                    current_val = low + random.uniform(0, 1.5)
-            else:
-                if current_val < low:
-                    current_val = low + random.uniform(0, 1.0)
-                elif current_val > high:
-                    current_val = high - random.uniform(0, 1.0)
-                    
         angles.append(round(current_val % 360, 1))
+        
     return angles
 
 # --- Streamlit UI ---
@@ -195,7 +185,7 @@ if st.button("🚀 طلع لي الداتا"):
                 except: continue
 
             if raw_records:
-                # توليد الزوايا المتسلسلة بعد تجميع السجلات
+                # توليد الزوايا المتسلسلة على مدار اليوم مع الـ Negative/Positive shifts والالتفاف
                 smooth_angles = generate_smooth_angles(raw_records)
                 
                 weather_data = []
@@ -210,7 +200,7 @@ if st.button("🚀 طلع لي الداتا"):
                     ])
 
                 df = pd.DataFrame(weather_data, columns=['Date', 'Time', 'Date and time', 'wind speed km/hr', 'wind direction', 'Wind Direction Angle'])
-                st.success("✅ الداتا طلعت اهي بالزوايا المتسلسلة...انزلي تحت انقري علشان تنزليها")
+                st.success("✅ الداتا طلعت اهي...انزلي تحت انقري علشان تنزليها")
                 st.dataframe(df)
                 
                 output = BytesIO()
