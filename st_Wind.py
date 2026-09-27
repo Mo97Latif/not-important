@@ -114,7 +114,7 @@ def generate_smooth_angles(records):
     # minimum gap enforced between consecutive hours of the same run -
     # comfortably above the 0.05 threshold where rounding to 1 decimal
     # could otherwise make two distinct angles display identically.
-    min_gap = 0.12
+    min_gap = 1.12
 
     for ridx, (direction, start, end) in enumerate(runs):
         ref = current_val if current_val is not None else sum(direction_ranges.get(direction, (0.0, 360.0))) / 2.0
@@ -159,8 +159,7 @@ def generate_smooth_angles(records):
         else:
             # rule 2: ramp toward the edge shared with the next direction
             # in ~2 deg/hour steps (never flat, never leaving this band).
-            sign = -1 if heading_up else 1
-            avg_step = random.uniform(1.5, 2.1)
+            sign = 1 if heading_up else -1
             needed = min_gap * length
 
             # how much room does the heading direction actually have from
@@ -175,7 +174,13 @@ def generate_smooth_angles(records):
             if available < needed:
                 entry = low + margin if heading_up else high - margin
 
-            desired_exit = entry + sign * avg_step * length
+            # anchor the *end* of the run close to the boundary shared with
+            # the next direction - e.g. the last hour or two of a North run
+            # before North East should land in the 0-10 slice, not linger
+            # in 350-360 - rather than a distance projection (entry +
+            # avg_step*length) that can undershoot the edge on short runs.
+            near_edge_offset = random.uniform(0.3, 1.5)
+            desired_exit = edge - sign * near_edge_offset
             exit_val = max(low + margin, min(high - margin, desired_exit))
             step_gap = (exit_val - entry) / length
 
